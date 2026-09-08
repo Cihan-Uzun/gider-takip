@@ -52,6 +52,132 @@ function decryptData(encryptedObj: { iv: string; encrypted: string; authTag: str
   return decrypted;
 }
 
+// Branches & Corporate Disallowed Rules Persistence
+const BRANCHES_FILE = path.join(process.cwd(), 'data', 'branches.json');
+const RULES_FILE = path.join(process.cwd(), 'data', 'disallowed_rules.json');
+
+const DEFAULT_BRANCHES = [
+  { id: 'br-karabuk', name: 'Karabük Şubesi', city: 'Karabük', code: 'KBK-01', manager: 'Ahmet Yılmaz', address: '100. Yıl Mah. Atatürk Cad. No:14 Karabük' },
+  { id: 'br-ist-merkez', name: 'İstanbul Merkez', city: 'İstanbul', code: 'IST-01', manager: 'Selin Demir', address: 'Büyükdere Cad. No:193 Levent İstanbul' },
+  { id: 'br-ankara', name: 'Ankara Çankaya Şubesi', city: 'Ankara', code: 'ANK-01', manager: 'Mehmet Kaya', address: 'Tunalı Hilmi Cad. No:45 Çankaya Ankara' },
+  { id: 'br-izmir', name: 'İzmir Konak Şubesi', city: 'İzmir', code: 'IZM-01', manager: 'Ayşe Öztürk', address: 'Cumhuriyet Bulvarı No:88 Konak İzmir' },
+  { id: 'br-bursa', name: 'Bursa Nilüfer Şubesi', city: 'Bursa', code: 'BUR-01', manager: 'Murat Arslan', address: 'FSM Bulvarı No:52 Nilüfer Bursa' },
+  { id: 'br-antalya', name: 'Antalya Muratpaşa Şubesi', city: 'Antalya', code: 'ANT-01', manager: 'Emre Çelik', address: 'Işıklar Cad. No:31 Muratpaşa Antalya' },
+  { id: 'br-kocaeli', name: 'Kocaeli Gebze Şubesi', city: 'Kocaeli', code: 'KOC-01', manager: 'Fatma Şahin', address: 'Bağdat Cad. No:74 Gebze Kocaeli' },
+];
+
+const DEFAULT_DISALLOWED_RULES = [
+  { id: 'rule-tekel', keyword: 'Tekel', description: 'Tekel bayileri ve tütün mamulleri', addedAt: new Date().toISOString() },
+  { id: 'rule-alkol', keyword: 'Alkol', description: 'Tüm alkollü içecekler', addedAt: new Date().toISOString() },
+  { id: 'rule-bira', keyword: 'Bira', description: 'Bira ve malt içecekler', addedAt: new Date().toISOString() },
+  { id: 'rule-sarap', keyword: 'Şarap', description: 'Şarap türevleri', addedAt: new Date().toISOString() },
+  { id: 'rule-raki', keyword: 'Rakı', description: 'Yüksek alkollü içkiler', addedAt: new Date().toISOString() },
+  { id: 'rule-viski', keyword: 'Viski', description: 'Yüksek alkollü içkiler', addedAt: new Date().toISOString() },
+  { id: 'rule-votka', keyword: 'Votka', description: 'Yüksek alkollü içkiler', addedAt: new Date().toISOString() },
+  { id: 'rule-sigara', keyword: 'Sigara', description: 'Sigara ve elektronik sigara', addedAt: new Date().toISOString() },
+  { id: 'rule-tutun', keyword: 'Tütün', description: 'Tütün mamulleri, nargile ve puro', addedAt: new Date().toISOString() },
+  { id: 'rule-puro', keyword: 'Puro', description: 'Tütün mamulleri', addedAt: new Date().toISOString() },
+  { id: 'rule-piyango', keyword: 'Piyango', description: 'Milli piyango ve şans oyunları', addedAt: new Date().toISOString() },
+  { id: 'rule-iddaa', keyword: 'İddaa', description: 'Bahis ve talih oyunları', addedAt: new Date().toISOString() },
+  { id: 'rule-kumar', keyword: 'Casino', description: 'Kumar ve şans oyunları', addedAt: new Date().toISOString() },
+];
+
+function loadBranches(): any[] {
+  try {
+    if (!fs.existsSync(BRANCHES_FILE)) {
+      saveBranches(DEFAULT_BRANCHES);
+      return DEFAULT_BRANCHES;
+    }
+    return JSON.parse(fs.readFileSync(BRANCHES_FILE, 'utf8'));
+  } catch {
+    return DEFAULT_BRANCHES;
+  }
+}
+
+function saveBranches(branches: any[]) {
+  try {
+    fs.writeFileSync(BRANCHES_FILE, JSON.stringify(branches, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Error saving branches:', e);
+  }
+}
+
+function loadDisallowedRules(): any[] {
+  try {
+    if (!fs.existsSync(RULES_FILE)) {
+      saveDisallowedRules(DEFAULT_DISALLOWED_RULES);
+      return DEFAULT_DISALLOWED_RULES;
+    }
+    return JSON.parse(fs.readFileSync(RULES_FILE, 'utf8'));
+  } catch {
+    return DEFAULT_DISALLOWED_RULES;
+  }
+}
+
+function saveDisallowedRules(rules: any[]) {
+  try {
+    fs.writeFileSync(RULES_FILE, JSON.stringify(rules, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Error saving disallowed rules:', e);
+  }
+}
+
+// Corporate Policy & Compliance Evaluation
+// "tek ürün hatalı olsa bile faturanın tamamını kabul edemeyeceğimiz uyarısı ver ve uygun olmayan faturalarda tut"
+function evaluateCompliance(receipt: any, rules: any[]) {
+  const disallowedHits: string[] = [];
+  const lowercaseKeywords = rules.map(r => r.keyword.toLowerCase().trim());
+
+  // Check merchant name
+  const merchantLower = (receipt.merchant || '').toLowerCase();
+  for (const kw of lowercaseKeywords) {
+    if (merchantLower.includes(kw)) {
+      disallowedHits.push(`Firma adı (${receipt.merchant}) yasaklı '${kw}' ibaresi içeriyor`);
+    }
+  }
+
+  // Check notes
+  const notesLower = (receipt.notes || '').toLowerCase();
+  for (const kw of lowercaseKeywords) {
+    if (notesLower.includes(kw)) {
+      disallowedHits.push(`Açıklamada '${kw}' ibaresi tespit edildi`);
+    }
+  }
+
+  // Check each item
+  if (Array.isArray(receipt.items)) {
+    receipt.items.forEach((item: any) => {
+      const itemNameLower = (item.name || '').toLowerCase();
+      for (const kw of lowercaseKeywords) {
+        if (itemNameLower.includes(kw)) {
+          item.isProhibited = true;
+          item.prohibitedReason = `Kurumsal olarak kabul edilmeyen ürün: ${kw}`;
+          disallowedHits.push(`Kalem: '${item.name}' ('${kw}' yasağı)`);
+        }
+      }
+    });
+  }
+
+  // If any hit found:
+  if (disallowedHits.length > 0) {
+    receipt.isNonCompliant = true;
+    receipt.approvalStatus = 'rejected';
+    receipt.nonCompliantItems = disallowedHits;
+    receipt.complianceReason = `KURUMSAL POLİTİKA UYARISI: Faturada kabul edilemeyecek ürün/kalem tespit edildi (${disallowedHits[0]}). Tek bir ürün dahi hatalı olsa kurumsal politika gereği faturanın TAMAMI REDDEDİLMİŞTİR.`;
+  } else {
+    receipt.isNonCompliant = false;
+    receipt.approvalStatus = 'approved';
+    receipt.complianceReason = 'Kurumsal satın alma ve harcama politikalarına uygun.';
+  }
+
+  // Ensure default branch if missing
+  if (!receipt.branch) {
+    receipt.branch = 'Karabük Şubesi';
+  }
+
+  return receipt;
+}
+
 // Seed initial realistic Turkish receipts if file doesn't exist
 function getInitialSeedReceipts() {
   const today = new Date().toISOString().split('T')[0];
@@ -62,6 +188,7 @@ function getInitialSeedReceipts() {
     {
       id: 'rec-001',
       merchant: 'Migros Ticaret A.Ş.',
+      branch: 'Karabük Şubesi',
       date: today,
       time: '14:20',
       totalAmount: 1845.50,
@@ -80,13 +207,17 @@ function getInitialSeedReceipts() {
         { name: 'Temel İhtiyaç & Bakliyat', quantity: 1, unitPrice: 617.5, totalPrice: 617.5 },
       ],
       isUnusualExpense: false,
+      isNonCompliant: false,
+      approvalStatus: 'approved',
+      complianceReason: 'Kurumsal satın alma politikalarına uygun.',
       status: 'processed',
       createdAt: new Date().toISOString(),
-      notes: 'Haftalık mutfak ve ev alışverişi.',
+      notes: 'Karabük Şubesi haftalık mutfak sarfiyatı.',
     },
     {
       id: 'rec-002',
       merchant: 'Opet Akaryakıt İstasyonu',
+      branch: 'Karabük Şubesi',
       date: today,
       time: '17:45',
       totalAmount: 2450.00,
@@ -101,13 +232,17 @@ function getInitialSeedReceipts() {
         { name: 'Kurşunsuz Benzin 95 Oktan', quantity: 54.4, unitPrice: 45.03, totalPrice: 2450.0 },
       ],
       isUnusualExpense: false,
+      isNonCompliant: false,
+      approvalStatus: 'approved',
+      complianceReason: 'Kurumsal araç yakıt politikalarına uygun.',
       status: 'processed',
       createdAt: new Date().toISOString(),
-      notes: 'Depo fulleme.',
+      notes: 'Karabük Şubesi saha aracı akaryakıt dolumu.',
     },
     {
       id: 'rec-003',
       merchant: 'Apple Store Zorlu Center (Gürgençler)',
+      branch: 'İstanbul Merkez',
       date: today,
       time: '12:10',
       totalAmount: 14999.00,
@@ -123,13 +258,17 @@ function getInitialSeedReceipts() {
       ],
       isUnusualExpense: true,
       unusualReason: 'Günün ve ayın ortalama harcama tutarının 6 katı üzerinde olağandışı harcama!',
+      isNonCompliant: false,
+      approvalStatus: 'approved',
+      complianceReason: 'Yönetim kurulu onayıyla IT envanterine kaydedildi.',
       status: 'processed',
       createdAt: new Date().toISOString(),
-      notes: 'Ofis ve sağlık takibi için akıllı saat.',
+      notes: 'Ofis ve test cihazı alımı.',
     },
     {
       id: 'rec-004',
       merchant: 'Enerjisa Elektrik Dağıtım',
+      branch: 'Karabük Şubesi',
       date: yesterday,
       time: '09:30',
       totalAmount: 940.25,
@@ -144,13 +283,17 @@ function getInitialSeedReceipts() {
         { name: 'Elektrik Tüketim Bedeli (Ağustos/Eylül)', quantity: 1, unitPrice: 940.25, totalPrice: 940.25 },
       ],
       isUnusualExpense: false,
+      isNonCompliant: false,
+      approvalStatus: 'approved',
+      complianceReason: 'Kurumsal abonelik faturası.',
       status: 'processed',
       createdAt: new Date(Date.now() - 86400000).toISOString(),
-      notes: 'Aylık elektrik faturası.',
+      notes: 'Karabük Şube binası elektrik faturası.',
     },
     {
       id: 'rec-005',
       merchant: 'D&R Kitap & Kırtasiye',
+      branch: 'Ankara Çankaya Şubesi',
       date: twoDaysAgo,
       time: '16:15',
       totalAmount: 760.00,
@@ -166,6 +309,9 @@ function getInitialSeedReceipts() {
         { name: 'Masaüstü Düzenleyici & Notluk', quantity: 1, unitPrice: 280.0, totalPrice: 280.0 },
       ],
       isUnusualExpense: false,
+      isNonCompliant: false,
+      approvalStatus: 'approved',
+      complianceReason: 'Ofis kırtasiye ihtiyacı.',
       status: 'processed',
       createdAt: new Date(Date.now() - 172800000).toISOString(),
       notes: 'Ofis sarf malzemesi.',
@@ -173,6 +319,7 @@ function getInitialSeedReceipts() {
     {
       id: 'rec-006',
       merchant: 'Nusr-Et Burger & Restoran',
+      branch: 'İzmir Konak Şubesi',
       date: twoDaysAgo,
       time: '20:30',
       totalAmount: 2150.00,
@@ -188,9 +335,45 @@ function getInitialSeedReceipts() {
         { name: 'İçecekler ve Tatlı', quantity: 1, unitPrice: 450.0, totalPrice: 450.0 },
       ],
       isUnusualExpense: false,
+      isNonCompliant: false,
+      approvalStatus: 'approved',
+      complianceReason: 'Müşteri ağırlama iş yemeği.',
       status: 'processed',
       createdAt: new Date(Date.now() - 172800000).toISOString(),
-      notes: 'İş yemeği.',
+      notes: 'Müşteri temsilcisi iş yemeği.',
+    },
+    {
+      id: 'rec-007',
+      merchant: 'Merkez Tekel & Şarküteri',
+      branch: 'Karabük Şubesi',
+      date: today,
+      time: '19:15',
+      totalAmount: 850.00,
+      currency: 'TRY',
+      taxAmount: 77.27,
+      taxRate: 10,
+      category: 'Diğer',
+      paymentMethod: 'Kredi Kartı',
+      docType: 'Fiş',
+      docNumber: 'TEK-00912',
+      items: [
+        { name: 'Maden Suyu 6lı Paket', quantity: 1, unitPrice: 60.0, totalPrice: 60.0 },
+        { name: 'Karışık Kuruyemiş 250g', quantity: 1, unitPrice: 140.0, totalPrice: 140.0 },
+        { name: 'Efes Pilsen Özel Seri 50cl x 4', quantity: 4, unitPrice: 110.0, totalPrice: 440.0, isProhibited: true, prohibitedReason: 'Alkol / Bira ürünü kurumsal harcamada kabul edilemez.' },
+        { name: 'Marlboro Touch Blue', quantity: 3, unitPrice: 70.0, totalPrice: 210.0, isProhibited: true, prohibitedReason: 'Tütün mamulleri kurumsal harcamada kabul edilemez.' },
+      ],
+      isUnusualExpense: false,
+      isNonCompliant: true,
+      approvalStatus: 'rejected',
+      nonCompliantItems: [
+        "Firma adı (Merkez Tekel & Şarküteri) yasaklı 'Tekel' ibaresi içeriyor",
+        "Kalem: 'Efes Pilsen Özel Seri 50cl x 4' ('Bira' yasağı)",
+        "Kalem: 'Marlboro Touch Blue' ('Sigara' yasağı)",
+      ],
+      complianceReason: 'KURUMSAL POLİTİKA UYARISI: Faturada kabul edilemeyecek ürün/kalem tespit edildi (Firma adı (Merkez Tekel & Şarküteri) yasaklı \'Tekel\' ibaresi içeriyor). Tek bir ürün dahi hatalı olsa kurumsal politika gereği faturanın TAMAMI REDDEDİLMİŞTİR.',
+      status: 'processed',
+      createdAt: new Date().toISOString(),
+      notes: 'Karabük Şubesi faturası: Tekel ve alkol/sigara kalemleri içerdiği için kurumsal ödeme reddedildi.',
     },
   ];
 }
@@ -206,7 +389,22 @@ function loadReceiptsFromDB(): any[] {
     const encryptedRaw = fs.readFileSync(DB_FILE_PATH, 'utf8');
     const encryptedObj = JSON.parse(encryptedRaw);
     const decryptedJson = decryptData(encryptedObj);
-    return JSON.parse(decryptedJson);
+    let list = JSON.parse(decryptedJson);
+
+    // If rec-007 is missing, re-seed so user gets full test suite
+    if (!list.some((r: any) => r.id === 'rec-007')) {
+      list = getInitialSeedReceipts();
+      saveReceiptsToDB(list);
+    } else {
+      list = list.map((r: any) => ({
+        ...r,
+        branch: r.branch || 'Karabük Şubesi',
+        isNonCompliant: Boolean(r.isNonCompliant),
+        approvalStatus: r.approvalStatus || (r.isNonCompliant ? 'rejected' : 'approved'),
+      }));
+    }
+
+    return list;
   } catch (err) {
     console.error('Error reading encrypted receipts DB:', err);
     // Fallback seed
@@ -321,10 +519,26 @@ app.get('/api/system/status', (req, res) => {
   });
 });
 
-// 2. Fetch all receipts (Decrypted from Encrypted DB)
+// 2. Fetch all receipts (Decrypted from Encrypted DB with branch & compliance filters)
 app.get('/api/receipts', (req, res) => {
   try {
-    const receipts = loadReceiptsFromDB();
+    let receipts = loadReceiptsFromDB();
+    const { branch, nonCompliant, approvalStatus } = req.query;
+
+    if (branch && branch !== 'all') {
+      receipts = receipts.filter(r => (r.branch || '').toLowerCase() === String(branch).toLowerCase());
+    }
+
+    if (nonCompliant === 'true') {
+      receipts = receipts.filter(r => r.isNonCompliant === true);
+    } else if (nonCompliant === 'false') {
+      receipts = receipts.filter(r => !r.isNonCompliant);
+    }
+
+    if (approvalStatus) {
+      receipts = receipts.filter(r => r.approvalStatus === approvalStatus);
+    }
+
     // Sort latest first
     receipts.sort((a, b) => new Date(b.date + ' ' + (b.time || '00:00')).getTime() - new Date(a.date + ' ' + (a.time || '00:00')).getTime());
     res.json({ success: true, data: receipts });
@@ -333,25 +547,228 @@ app.get('/api/receipts', (req, res) => {
   }
 });
 
-// 3. Save new receipt (Encrypts & persists, adds audit log)
+// 2.1 Branch Management Endpoints
+app.get('/api/branches', (req, res) => {
+  try {
+    const branches = loadBranches();
+    const receipts = loadReceiptsFromDB();
+
+    const enriched = branches.map(b => {
+      const branchReceipts = receipts.filter(r => (r.branch || '').toLowerCase() === b.name.toLowerCase());
+      const approvedReceipts = branchReceipts.filter(r => !r.isNonCompliant);
+      const nonCompliantReceipts = branchReceipts.filter(r => r.isNonCompliant);
+      const totalSpending = approvedReceipts.reduce((acc, r) => acc + (r.totalAmount || 0), 0);
+
+      // Top category
+      const catMap: Record<string, number> = {};
+      approvedReceipts.forEach(r => {
+        catMap[r.category] = (catMap[r.category] || 0) + (r.totalAmount || 0);
+      });
+      let topCategory = 'Genel';
+      let maxCatAmount = 0;
+      Object.entries(catMap).forEach(([cat, amt]) => {
+        if (amt > maxCatAmount) {
+          maxCatAmount = amt;
+          topCategory = cat;
+        }
+      });
+
+      return {
+        ...b,
+        totalSpending,
+        receiptCount: branchReceipts.length,
+        nonCompliantCount: nonCompliantReceipts.length,
+        approvedCount: approvedReceipts.length,
+        topCategory,
+      };
+    });
+
+    res.json({ success: true, data: enriched });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/branches', (req, res) => {
+  try {
+    const { name, city, code, manager, address } = req.body;
+    if (!name) {
+      return res.status(400).json({ success: false, error: 'Şube adı gereklidir.' });
+    }
+    const branches = loadBranches();
+    const existing = branches.find(b => b.name.toLowerCase() === name.trim().toLowerCase());
+    if (existing) {
+      return res.status(400).json({ success: false, error: 'Bu isimde bir şube zaten mevcut.' });
+    }
+
+    const newBranch = {
+      id: 'br-' + Date.now(),
+      name: name.trim(),
+      city: city ? city.trim() : name.replace(/ şubesi/i, '').trim(),
+      code: code ? code.trim().toUpperCase() : ('SUB-' + (branches.length + 1).toString().padStart(2, '0')),
+      manager: manager ? manager.trim() : 'Şube Müdürü',
+      address: address ? address.trim() : '',
+    };
+
+    branches.push(newBranch);
+    saveBranches(branches);
+    logTransaction('BRANCH_ADDED', { name: newBranch.name, code: newBranch.code });
+
+    res.json({ success: true, data: newBranch });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 2.2 Corporate Disallowed Products / Categories Endpoints (Blacklist)
+app.get('/api/compliance/rules', (req, res) => {
+  try {
+    const rules = loadDisallowedRules();
+    res.json({ success: true, data: rules });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/compliance/rules', (req, res) => {
+  try {
+    const { keyword, description } = req.body;
+    if (!keyword || !keyword.trim()) {
+      return res.status(400).json({ success: false, error: 'Yasaklı ürün/kelime adı gereklidir.' });
+    }
+    const rules = loadDisallowedRules();
+    const cleanKeyword = keyword.trim();
+
+    if (rules.some(r => r.keyword.toLowerCase() === cleanKeyword.toLowerCase())) {
+      return res.status(400).json({ success: false, error: 'Bu yasaklı ürün kuralı zaten mevcut.' });
+    }
+
+    const newRule = {
+      id: 'rule-' + Date.now(),
+      keyword: cleanKeyword,
+      description: description ? description.trim() : 'Kurumsal olarak kabul edilmeyen harcama kalemi',
+      addedAt: new Date().toISOString(),
+    };
+
+    rules.push(newRule);
+    saveDisallowedRules(rules);
+
+    // Retroactively evaluate existing receipts and flag matches
+    let receipts = loadReceiptsFromDB();
+    let newlyRejected = 0;
+    receipts = receipts.map(r => {
+      const wasCompliant = !r.isNonCompliant;
+      const evaluated = evaluateCompliance(r, rules);
+      if (wasCompliant && evaluated.isNonCompliant) {
+        newlyRejected++;
+      }
+      return evaluated;
+    });
+    saveReceiptsToDB(receipts);
+
+    logTransaction('COMPLIANCE_RULE_ADDED', { keyword: newRule.keyword, newlyRejected });
+
+    res.json({
+      success: true,
+      data: newRule,
+      message: `"${cleanKeyword}" kuralı eklendi. ${newlyRejected > 0 ? `${newlyRejected} adet fatura kurumsal politika gereği reddedildi.` : 'Mevcut faturalar tarandı.'}`,
+      newlyRejected,
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.delete('/api/compliance/rules/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    let rules = loadDisallowedRules();
+    const target = rules.find(r => r.id === id);
+    if (!target) {
+      return res.status(404).json({ success: false, error: 'Kural bulunamadı' });
+    }
+
+    rules = rules.filter(r => r.id !== id);
+    saveDisallowedRules(rules);
+
+    // Re-evaluate database
+    let receipts = loadReceiptsFromDB();
+    receipts = receipts.map(r => evaluateCompliance(r, rules));
+    saveReceiptsToDB(receipts);
+
+    logTransaction('COMPLIANCE_RULE_DELETED', { id, keyword: target.keyword });
+    res.json({ success: true, message: `"${target.keyword}" kuralı kaldırıldı.` });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 2.3 Branch Expense Report
+app.get('/api/reports/branches', (req, res) => {
+  try {
+    const branches = loadBranches();
+    const receipts = loadReceiptsFromDB();
+
+    const report = branches.map(branch => {
+      const branchReceipts = receipts.filter(r => (r.branch || '').toLowerCase() === branch.name.toLowerCase());
+      const approved = branchReceipts.filter(r => !r.isNonCompliant);
+      const rejected = branchReceipts.filter(r => r.isNonCompliant);
+
+      const totalApprovedAmount = approved.reduce((s, r) => s + (r.totalAmount || 0), 0);
+      const totalRejectedAmount = rejected.reduce((s, r) => s + (r.totalAmount || 0), 0);
+
+      // Category breakdown
+      const categories: Record<string, number> = {};
+      approved.forEach(r => {
+        categories[r.category] = (categories[r.category] || 0) + (r.totalAmount || 0);
+      });
+
+      return {
+        branchId: branch.id,
+        branchName: branch.name,
+        city: branch.city,
+        code: branch.code,
+        manager: branch.manager,
+        totalReceipts: branchReceipts.length,
+        approvedCount: approved.length,
+        rejectedCount: rejected.length,
+        totalApprovedAmount,
+        totalRejectedAmount,
+        categoryBreakdown: categories,
+        recentReceipts: branchReceipts.slice(0, 5),
+      };
+    });
+
+    res.json({ success: true, data: report });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 3. Save new receipt (Encrypts & persists, adds audit log, checks compliance)
 app.post('/api/receipts', (req, res) => {
   try {
     const receiptData = req.body;
     const receipts = loadReceiptsFromDB();
+    const rules = loadDisallowedRules();
 
-    const newReceipt = {
+    let newReceipt = {
       ...receiptData,
       id: receiptData.id || 'rec-' + Date.now(),
+      branch: receiptData.branch || 'Karabük Şubesi',
       createdAt: new Date().toISOString(),
       status: 'processed',
       encryptedHash: crypto.createHash('sha256').update(JSON.stringify(receiptData)).digest('hex').substring(0, 16),
     };
 
-    // Calculate if unusual spend (> 4000 TRY or specifically marked)
+    // Calculate if unusual spend (> 4500 TRY or specifically marked)
     if (newReceipt.totalAmount > 4500 && !newReceipt.isUnusualExpense) {
       newReceipt.isUnusualExpense = true;
       newReceipt.unusualReason = '4.500 ₺ üzeri yüksek tutarlı harcama tespiti';
     }
+
+    // Evaluate corporate policy and disallowed product rules
+    newReceipt = evaluateCompliance(newReceipt, rules);
 
     receipts.unshift(newReceipt);
     saveReceiptsToDB(receipts);
@@ -359,8 +776,10 @@ app.post('/api/receipts', (req, res) => {
     logTransaction('RECEIPT_ADDED', {
       id: newReceipt.id,
       merchant: newReceipt.merchant,
+      branch: newReceipt.branch,
       amount: newReceipt.totalAmount,
       category: newReceipt.category,
+      isNonCompliant: newReceipt.isNonCompliant,
     });
 
     res.json({ success: true, data: newReceipt });
@@ -375,20 +794,25 @@ app.put('/api/receipts/:id', (req, res) => {
     const { id } = req.params;
     const updatedData = req.body;
     let receipts = loadReceiptsFromDB();
+    const rules = loadDisallowedRules();
     const index = receipts.findIndex(r => r.id === id);
 
     if (index === -1) {
       return res.status(404).json({ success: false, error: 'Fiş bulunamadı' });
     }
 
-    receipts[index] = {
+    let updatedReceipt = {
       ...receipts[index],
       ...updatedData,
       updatedAt: new Date().toISOString(),
     };
 
+    // Re-evaluate compliance
+    updatedReceipt = evaluateCompliance(updatedReceipt, rules);
+    receipts[index] = updatedReceipt;
+
     saveReceiptsToDB(receipts);
-    logTransaction('RECEIPT_UPDATED', { id, merchant: receipts[index].merchant });
+    logTransaction('RECEIPT_UPDATED', { id, merchant: receipts[index].merchant, branch: receipts[index].branch });
 
     res.json({ success: true, data: receipts[index] });
   } catch (error: any) {
@@ -405,7 +829,7 @@ app.delete('/api/receipts/:id', (req, res) => {
     receipts = receipts.filter(r => r.id !== id);
 
     saveReceiptsToDB(receipts);
-    logTransaction('RECEIPT_DELETED', { id, merchant: target?.merchant });
+    logTransaction('RECEIPT_DELETED', { id, merchant: target?.merchant, branch: target?.branch });
 
     res.json({ success: true, message: 'Fiş silindi' });
   } catch (error: any) {
@@ -422,10 +846,26 @@ app.post('/api/receipts/ocr', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Görsel veya metin verisi gereklidir.' });
     }
 
+    const rules = loadDisallowedRules();
+    const branches = loadBranches();
+    const branchNames = branches.map(b => b.name).join(', ');
+
     const prompt = `
-Sen profesyonel bir muhasebe, fiş, makbuz, e-fatura ve harcama OCR analiz uzmanısın.
+Sen profesyonel bir kurumsal muhasebe, fiş, makbuz, e-fatura ve harcama OCR analiz uzmanısın.
 Sana verilen fiş / fatura / makbuz belgesini dikkatlice oku ve aşağıdaki JSON formatında kesin ve eksiksiz çıktı üret.
 Türkçe para birimi (TRY/TL) kullan.
+
+ŞUBE TESPİTİ (ÖNEMLİ):
+Firmamızın tüm Türkiye'de şubeleri bulunmaktadır.
+Belge üzerindeki şube adını veya teslimat lokasyonunu dikkatlice tespit et (Örn: "Karabük Şubesi", "İstanbul Merkez", "Ankara Çankaya Şubesi", "İzmir Konak Şubesi", vb.).
+Mevcut kayıtlı şubeler şunlardır: ${branchNames}.
+Eğer belgede açıkça bir şube belirtilmişse (örneğin "Karabük Şubesi" veya "Karabük"), "branch" alanına yaz.
+Eğer şube ismi açıkça belirtilmemişse varsayılan olarak "Karabük Şubesi" ata.
+
+KURUMSAL UYGUNLUK VE YASAKLI ÜRÜN KURALI (KRİTİK):
+Kurumsal şirket politikası gereği, faturada Tekel, Alkol (bira, şarap, rakı vb.), Sigara/Tütün, Puro, Piyango/Bahis gibi harcamalar KESİNLİKLE YASAKTIR.
+KURAL: TEK BİR ÜRÜN DAHİ BU YASAKLI KELİMELERDEN BİRİNE UYUYORSA, FATURANIN TAMAMI KABUL EDİLEMEZ VE REDDEDİLMELİDİR.
+Yasaklı kelimeler listesi: ${rules.map(r => r.keyword).join(', ')}.
 
 Kategori olarak SADECE şunlardan birini seç:
 - "Market & Gıda"
@@ -450,11 +890,12 @@ Belge Türü (docType) olarak SADECE şunlardan birini seç:
 - "Banka Kartı"
 - "Havale / EFT"
 
-Olağandışı harcama kontrolü: Eğer tutar 3.500 TL'den yüksekse veya lüks/beklenmedik bir harcamaysa isUnusualExpense true yap ve nedenini unusualReason alanına yaz.
+Olağandışı harcama kontrolü: Eğer tutar 4.000 TL'den yüksekse veya lüks/beklenmedik bir harcamaysa isUnusualExpense true yap ve nedenini unusualReason alanına yaz.
 
 DÖNDÜRÜLECEK JSON ŞEMASI:
 {
   "merchant": "Mağaza veya Firma Adı",
+  "branch": "Karabük Şubesi",
   "date": "YYYY-MM-DD",
   "time": "HH:MM",
   "totalAmount": 123.45,
@@ -548,6 +989,12 @@ Sadece JSON formatında geçerli yanıt ver. Markdown blokları koyma.
         notes: 'OCR ile başarıyla tarandı ve ayrıştırıldı.',
       };
     }
+
+    // Ensure compliance and branch are strictly evaluated on the OCR output
+    if (!resultJson.branch) {
+      resultJson.branch = 'Karabük Şubesi';
+    }
+    resultJson = evaluateCompliance(resultJson, rules);
 
     res.json({ success: true, data: resultJson });
   } catch (error: any) {
@@ -681,13 +1128,17 @@ app.post('/api/receipts/run-batch-2100', async (req, res) => {
         };
       }
 
-      const newRec = {
+      let newRec = {
         ...ocrResult,
         id: 'rec-batch-' + Date.now() + '-' + i,
+        branch: ocrResult.branch || item.branch || 'Karabük Şubesi',
         status: 'processed',
         createdAt: new Date().toISOString(),
         encryptedHash: crypto.createHash('sha256').update(JSON.stringify(ocrResult)).digest('hex').substring(0, 16),
       };
+
+      const rules = loadDisallowedRules();
+      newRec = evaluateCompliance(newRec, rules);
 
       receipts.unshift(newRec);
       processedReceipts.push(newRec);
@@ -785,9 +1236,17 @@ app.get('/api/reports/monthly', (req, res) => {
   try {
     const receipts = loadReceiptsFromDB();
     const month = (req.query.month as string) || new Date().toISOString().substring(0, 7); // e.g. "2026-09"
+    const branch = req.query.branch as string;
 
-    const monthReceipts = receipts.filter(r => (r.date || '').startsWith(month) && r.status === 'processed');
-    const totalSpending = monthReceipts.reduce((sum, r) => sum + (Number(r.totalAmount) || 0), 0);
+    let monthReceipts = receipts.filter(r => (r.date || '').startsWith(month) && r.status === 'processed');
+    if (branch && branch !== 'all') {
+      monthReceipts = monthReceipts.filter(r => (r.branch || '').toLowerCase() === branch.toLowerCase());
+    }
+
+    const approvedReceipts = monthReceipts.filter(r => !r.isNonCompliant);
+    const rejectedReceipts = monthReceipts.filter(r => r.isNonCompliant);
+    const totalSpending = approvedReceipts.reduce((sum, r) => sum + (Number(r.totalAmount) || 0), 0);
+    const totalRejectedSpending = rejectedReceipts.reduce((sum, r) => sum + (Number(r.totalAmount) || 0), 0);
 
     const categoryColorMap: { [key: string]: string } = {
       'Market & Gıda': '#10B981',
@@ -842,7 +1301,10 @@ app.get('/api/reports/monthly', (req, res) => {
         month,
         monthName: new Date(month + '-01').toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' }),
         totalSpending,
+        totalRejectedSpending,
         totalReceipts: monthReceipts.length,
+        approvedReceiptsCount: approvedReceipts.length,
+        rejectedReceiptsCount: rejectedReceipts.length,
         categoryBreakdown,
         dailyTotals,
         previousMonthComparison: {

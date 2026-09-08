@@ -11,6 +11,9 @@ import {
   ShieldCheck,
   Smartphone,
   Calendar,
+  Building2,
+  AlertOctagon,
+  Sliders,
 } from 'lucide-react';
 import { Header } from './components/Header';
 import { ReceiptsList } from './components/ReceiptsList';
@@ -20,10 +23,15 @@ import { MonthlyReportsView } from './components/MonthlyReportsView';
 import { BudgetAnalyticsView } from './components/BudgetAnalyticsView';
 import { MorningNotificationModal } from './components/MorningNotificationModal';
 import { AnnualBackupModal } from './components/AnnualBackupModal';
+import { BranchesView } from './components/BranchesView';
+import { NonCompliantInvoicesView } from './components/NonCompliantInvoicesView';
+import { CompliancePolicySettingsView } from './components/CompliancePolicySettingsView';
 import { Receipt, MonthlyReport, DailySummary, SystemStatus, DocumentType } from './types';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'receipts' | 'batch2100' | 'monthly' | 'budget'>('receipts');
+  const [activeTab, setActiveTab] = useState<
+    'receipts' | 'branches' | 'non_compliant' | 'rules' | 'batch2100' | 'monthly' | 'budget'
+  >('receipts');
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [queueItems, setQueueItems] = useState<any[]>([]);
   const [monthlyReport, setMonthlyReport] = useState<MonthlyReport | null>(null);
@@ -32,6 +40,8 @@ export default function App() {
   const [currentMonth, setCurrentMonth] = useState(() => new Date().toISOString().substring(0, 7));
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [branchFilterForReceipts, setBranchFilterForReceipts] = useState<string>('Tümü');
+  const [scannerInitialBranch, setScannerInitialBranch] = useState<string>('Karabük Şubesi');
 
   // Modals
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -93,7 +103,7 @@ export default function App() {
   };
 
   // Handle Add to 21:00 Queue
-  const handleQueueFor2100 = async (item: { name: string; imageBase64: string; docType: DocumentType }) => {
+  const handleQueueFor2100 = async (item: { name: string; imageBase64: string; docType: DocumentType; branch?: string }) => {
     const res = await fetch('/api/receipts/queue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -118,6 +128,10 @@ export default function App() {
     }
   };
 
+  const rejectedReceiptsCount = receipts.filter(
+    (r) => r.isNonCompliant || r.approvalStatus === 'rejected'
+  ).length;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col antialiased selection:bg-emerald-500 selection:text-slate-950">
       {/* Top Header */}
@@ -136,10 +150,13 @@ export default function App() {
       <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 pb-24 md:pb-8 space-y-4">
         {/* Navigation Tabs (Desktop & Tablet) */}
         <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
-          <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar py-0.5">
+          <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar py-0.5">
             <button
-              onClick={() => setActiveTab('receipts')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+              onClick={() => {
+                setBranchFilterForReceipts('Tümü');
+                setActiveTab('receipts');
+              }}
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
                 activeTab === 'receipts'
                   ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
@@ -152,16 +169,63 @@ export default function App() {
               </span>
             </button>
 
+            {/* Corporate Branches Tab */}
+            <button
+              onClick={() => setActiveTab('branches')}
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                activeTab === 'branches'
+                  ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <Building2 className="w-4 h-4 text-blue-400" />
+              <span>Tüm Şubeler</span>
+              <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded-full font-mono">
+                Türkiye
+              </span>
+            </button>
+
+            {/* Non-Compliant / Rejected Tab */}
+            <button
+              onClick={() => setActiveTab('non_compliant')}
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                activeTab === 'non_compliant'
+                  ? 'bg-rose-950/60 text-rose-200 border border-rose-500/50 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <AlertOctagon className="w-4 h-4 text-rose-400" />
+              <span>Uygun Olmayan Faturalar</span>
+              {rejectedReceiptsCount > 0 && (
+                <span className="text-[10px] bg-rose-500 text-white font-bold px-1.5 py-0.2 rounded-full animate-pulse">
+                  {rejectedReceiptsCount}
+                </span>
+              )}
+            </button>
+
+            {/* Compliance Policy Settings Tab */}
+            <button
+              onClick={() => setActiveTab('rules')}
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                activeTab === 'rules'
+                  ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <Sliders className="w-4 h-4 text-amber-400" />
+              <span>Kural Yönetimi</span>
+            </button>
+
             <button
               onClick={() => setActiveTab('batch2100')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
                 activeTab === 'batch2100'
                   ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
               }`}
             >
               <Clock className="w-4 h-4 text-amber-400" />
-              <span>21:00 Otomatik Tarama</span>
+              <span>21:00 Tarama</span>
               {queueItems.length > 0 && (
                 <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded-full font-bold">
                   {queueItems.length}
@@ -171,7 +235,7 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('monthly')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
                 activeTab === 'monthly'
                   ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
@@ -183,7 +247,7 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('budget')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
                 activeTab === 'budget'
                   ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
@@ -198,9 +262,12 @@ export default function App() {
           </div>
 
           {/* Quick Scanner Action in Desktop */}
-          <div className="hidden sm:flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-2 shrink-0">
             <button
-              onClick={() => setIsScannerOpen(true)}
+              onClick={() => {
+                setScannerInitialBranch('Karabük Şubesi');
+                setIsScannerOpen(true);
+              }}
               className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold px-4 py-2 rounded-xl shadow-md shadow-emerald-500/20 transition"
             >
               <Camera className="w-4 h-4" />
@@ -213,7 +280,7 @@ export default function App() {
         {isLoading ? (
           <div className="py-20 text-center space-y-3">
             <div className="w-10 h-10 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-xs text-slate-400">Şifreli bulut veritabanından fişler yükleniyor...</p>
+            <p className="text-xs text-slate-400">Şifreli kurumsal veritabanından fişler ve şubeler yükleniyor...</p>
           </div>
         ) : (
           <div>
@@ -222,6 +289,35 @@ export default function App() {
                 receipts={receipts}
                 onDeleteReceipt={handleDeleteReceipt}
                 onOpenScanner={() => setIsScannerOpen(true)}
+                initialBranchFilter={branchFilterForReceipts}
+              />
+            )}
+
+            {activeTab === 'branches' && (
+              <BranchesView
+                receipts={receipts}
+                onSelectBranchFilter={(branchName) => {
+                  setBranchFilterForReceipts(branchName);
+                  setActiveTab('receipts');
+                }}
+                onOpenScannerForBranch={(branchName) => {
+                  setScannerInitialBranch(branchName);
+                  setIsScannerOpen(true);
+                }}
+              />
+            )}
+
+            {activeTab === 'non_compliant' && (
+              <NonCompliantInvoicesView
+                receipts={receipts}
+                onDeleteReceipt={handleDeleteReceipt}
+                onOpenComplianceSettings={() => setActiveTab('rules')}
+              />
+            )}
+
+            {activeTab === 'rules' && (
+              <CompliancePolicySettingsView
+                onRulesUpdated={() => fetchData()}
               />
             )}
 
@@ -257,7 +353,10 @@ export default function App() {
       {/* Floating Action Button (Mobile First) */}
       <div className="fixed bottom-16 right-4 sm:bottom-6 sm:right-6 z-40">
         <button
-          onClick={() => setIsScannerOpen(true)}
+          onClick={() => {
+            setScannerInitialBranch('Karabük Şubesi');
+            setIsScannerOpen(true);
+          }}
           className="flex items-center gap-2 bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 font-bold text-xs sm:text-sm px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl shadow-xl shadow-emerald-500/25 transition transform hover:scale-105 active:scale-95"
         >
           <Camera className="w-5 h-5" />
@@ -268,13 +367,39 @@ export default function App() {
       {/* Mobile Bottom Navigation Bar */}
       <div className="md:hidden fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 z-30 px-2 py-1.5 flex items-center justify-around text-[10px]">
         <button
-          onClick={() => setActiveTab('receipts')}
+          onClick={() => {
+            setBranchFilterForReceipts('Tümü');
+            setActiveTab('receipts');
+          }}
           className={`flex flex-col items-center gap-1 p-1.5 rounded-lg transition ${
             activeTab === 'receipts' ? 'text-emerald-400 font-bold' : 'text-slate-400'
           }`}
         >
           <ReceiptIcon className="w-4 h-4" />
           <span>Fişler</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('branches')}
+          className={`flex flex-col items-center gap-1 p-1.5 rounded-lg transition ${
+            activeTab === 'branches' ? 'text-blue-400 font-bold' : 'text-slate-400'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          <span>Şubeler</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('non_compliant')}
+          className={`flex flex-col items-center gap-1 p-1.5 rounded-lg transition relative ${
+            activeTab === 'non_compliant' ? 'text-rose-400 font-bold' : 'text-slate-400'
+          }`}
+        >
+          <AlertOctagon className="w-4 h-4" />
+          <span>Uygunsuz</span>
+          {rejectedReceiptsCount > 0 && (
+            <span className="absolute top-0 right-1 w-2 h-2 bg-rose-500 rounded-full animate-ping" />
+          )}
         </button>
 
         <button
@@ -297,25 +422,7 @@ export default function App() {
           }`}
         >
           <PieChart className="w-4 h-4" />
-          <span>Rapor & PDF</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('budget')}
-          className={`flex flex-col items-center gap-1 p-1.5 rounded-lg transition ${
-            activeTab === 'budget' ? 'text-indigo-400 font-bold' : 'text-slate-400'
-          }`}
-        >
-          <Target className="w-4 h-4" />
-          <span>Bütçe</span>
-        </button>
-
-        <button
-          onClick={() => setIsNotificationModalOpen(true)}
-          className="flex flex-col items-center gap-1 p-1.5 rounded-lg text-slate-400 hover:text-white transition"
-        >
-          <Bell className="w-4 h-4 text-amber-400" />
-          <span>Sabah Özeti</span>
+          <span>Rapor</span>
         </button>
       </div>
 
@@ -325,6 +432,7 @@ export default function App() {
         onClose={() => setIsScannerOpen(false)}
         onSaveReceipt={handleSaveReceipt}
         onQueueFor2100={handleQueueFor2100}
+        initialBranch={scannerInitialBranch}
       />
 
       <MorningNotificationModal

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Search,
   Filter,
@@ -12,6 +12,8 @@ import {
   Trash2,
   FileText,
   ShieldCheck,
+  Building2,
+  AlertOctagon,
 } from 'lucide-react';
 import { Receipt, ExpenseCategory, DocumentType } from '../types';
 
@@ -19,6 +21,7 @@ interface ReceiptsListProps {
   receipts: Receipt[];
   onDeleteReceipt: (id: string) => void;
   onOpenScanner: () => void;
+  initialBranchFilter?: string;
 }
 
 const CATEGORY_COLORS: { [key: string]: string } = {
@@ -37,27 +40,39 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
   receipts,
   onDeleteReceipt,
   onOpenScanner,
+  initialBranchFilter = 'Tümü',
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Tümü');
   const [selectedDocType, setSelectedDocType] = useState<string>('Tümü');
+  const [selectedBranch, setSelectedBranch] = useState<string>(initialBranchFilter);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // Categories list for filter
+  useEffect(() => {
+    if (initialBranchFilter) {
+      setSelectedBranch(initialBranchFilter);
+    }
+  }, [initialBranchFilter]);
+
+  // Categories and branches list for filter
   const categories = ['Tümü', ...Array.from(new Set(receipts.map((r) => r.category)))];
   const docTypes = ['Tümü', 'Fiş', 'Fatura', 'E-Fatura', 'Makbuz'];
+  const branches = ['Tümü', ...Array.from(new Set(receipts.map((r) => r.branch || 'Karabük Şubesi')))];
 
   // Filtered receipts
   const filtered = receipts.filter((r) => {
+    const rBranch = r.branch || 'Karabük Şubesi';
     const matchesSearch =
       r.merchant.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      rBranch.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (r.docNumber && r.docNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (r.notes && r.notes.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchesCategory = selectedCategory === 'Tümü' || r.category === selectedCategory;
     const matchesDocType = selectedDocType === 'Tümü' || r.docType === selectedDocType;
+    const matchesBranch = selectedBranch === 'Tümü' || rBranch === selectedBranch;
 
-    return matchesSearch && matchesCategory && matchesDocType;
+    return matchesSearch && matchesCategory && matchesDocType && matchesBranch;
   });
 
   const totalFilteredAmount = filtered.reduce((acc, r) => acc + (Number(r.totalAmount) || 0), 0);
@@ -78,9 +93,25 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Firma, fiş no veya ürün ara..."
+              placeholder="Firma, şube (Karabük vb.), fiş no veya ürün ara..."
               className="w-full bg-slate-800/80 border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
             />
+          </div>
+
+          {/* Branch Filter Dropdown */}
+          <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700/80 rounded-xl px-3 py-1.5">
+            <Building2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <select
+              value={selectedBranch}
+              onChange={(e) => setSelectedBranch(e.target.value)}
+              className="bg-transparent text-xs text-white font-medium focus:outline-none cursor-pointer"
+            >
+              {branches.map((b) => (
+                <option key={b} value={b} className="bg-slate-900 text-white">
+                  {b === 'Tümü' ? 'Tüm Şubeler' : b}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Quick Scan CTA */}
@@ -136,32 +167,35 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
       {/* Filter Stats Bar */}
       <div className="flex items-center justify-between px-1 text-xs text-slate-400">
         <div>
+          {selectedBranch !== 'Tümü' && (
+            <span className="text-emerald-400 font-semibold mr-2">[{selectedBranch}]</span>
+          )}
           Toplam <span className="text-white font-semibold">{filtered.length}</span> fiş / fatura
         </div>
         <div>
-          Filtrelenen Toplam:{' '}
-          <span className="text-emerald-400 font-bold text-sm">
+          Gider Toplamı:{' '}
+          <span className="text-emerald-400 font-mono font-bold">
             ₺{totalFilteredAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
           </span>
         </div>
       </div>
 
-      {/* Receipts Cards List */}
+      {/* Receipts List */}
       {filtered.length === 0 ? (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-10 text-center space-y-3">
-          <div className="w-12 h-12 rounded-full bg-slate-800 text-slate-500 flex items-center justify-center mx-auto">
-            <FileText className="w-6 h-6" />
+        <div className="text-center py-16 bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
+          <div className="w-12 h-12 rounded-2xl bg-slate-800 text-slate-500 flex items-center justify-center mx-auto mb-3">
+            <ReceiptIcon className="w-6 h-6" />
           </div>
-          <p className="text-sm font-semibold text-slate-300">Henüz Fiş veya Fatura Bulunmuyor</p>
-          <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            Kamera ile fiş çekerek veya dosya yükleyerek OCR ile otomatik veri girişi yapabilirsiniz.
+          <h3 className="text-sm font-semibold text-white">Kayıtlı Belge Bulunamadı</h3>
+          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+            Filtreleme kriterlerine uyan fiş veya fatura yok. Yeni bir makbuz veya fiş tarayarak başlayabilirsiniz.
           </p>
           <button
             onClick={onOpenScanner}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 px-4 py-2 rounded-xl transition"
+            className="mt-4 inline-flex items-center gap-2 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold px-4 py-2 rounded-xl transition"
           >
             <ReceiptIcon className="w-4 h-4" />
-            İlk Fişi Tara
+            <span>Fiş Tara</span>
           </button>
         </div>
       ) : (
@@ -170,12 +204,16 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
             const isExpanded = expandedId === receipt.id;
             const categoryStyle =
               CATEGORY_COLORS[receipt.category] || 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+            const receiptBranch = receipt.branch || 'Karabük Şubesi';
+            const isRejected = receipt.isNonCompliant || receipt.approvalStatus === 'rejected';
 
             return (
               <div
                 key={receipt.id}
                 className={`bg-slate-900 border transition rounded-xl overflow-hidden ${
-                  receipt.isUnusualExpense
+                  isRejected
+                    ? 'border-rose-500/50 bg-rose-950/20 shadow-sm shadow-rose-500/5'
+                    : receipt.isUnusualExpense
                     ? 'border-amber-500/50 shadow-sm shadow-amber-500/5'
                     : 'border-slate-800 hover:border-slate-700'
                 }`}
@@ -186,8 +224,18 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
                   className="p-3.5 cursor-pointer flex items-center justify-between gap-3 select-none"
                 >
                   <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700/80 flex items-center justify-center text-slate-300 shrink-0 mt-0.5">
-                      <ReceiptIcon className="w-4 h-4 text-emerald-400" />
+                    <div
+                      className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 mt-0.5 ${
+                        isRejected
+                          ? 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+                          : 'bg-slate-800 border-slate-700/80 text-slate-300'
+                      }`}
+                    >
+                      {isRejected ? (
+                        <AlertOctagon className="w-4 h-4 text-rose-400" />
+                      ) : (
+                        <ReceiptIcon className="w-4 h-4 text-emerald-400" />
+                      )}
                     </div>
 
                     <div className="min-w-0">
@@ -195,12 +243,27 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
                         <h3 className="text-sm font-semibold text-white truncate max-w-[200px] sm:max-w-md">
                           {receipt.merchant}
                         </h3>
+
+                        {/* Branch badge */}
+                        <span className="text-[10px] font-semibold bg-slate-800 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Building2 className="w-2.5 h-2.5" />
+                          {receiptBranch}
+                        </span>
+
                         <span className={`text-[10px] font-medium border px-2 py-0.5 rounded-full ${categoryStyle}`}>
                           {receipt.category}
                         </span>
                         <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
                           {receipt.docType}
                         </span>
+
+                        {/* Rejected Pill */}
+                        {isRejected && (
+                          <span className="text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <AlertOctagon className="w-3 h-3 text-rose-400" />
+                            Kurumsal Politika Reddi
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1">
@@ -219,8 +282,16 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
                         )}
                       </div>
 
+                      {/* Compliance Failure Alert Pill */}
+                      {isRejected && receipt.complianceReason && (
+                        <div className="inline-flex items-center gap-1 text-[11px] text-rose-300 bg-rose-500/15 border border-rose-500/40 px-2.5 py-1 rounded-md mt-1.5">
+                          <AlertOctagon className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          <span>{receipt.complianceReason}</span>
+                        </div>
+                      )}
+
                       {/* Unusual Expense Alert Pill */}
-                      {receipt.isUnusualExpense && (
+                      {receipt.isUnusualExpense && !isRejected && (
                         <div className="inline-flex items-center gap-1 text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-md mt-1.5">
                           <AlertTriangle className="w-3 h-3 text-amber-400" />
                           <span>{receipt.unusualReason || 'Olağandışı Yüksek Harcama!'}</span>
@@ -232,7 +303,11 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
                   {/* Right: Amount & Toggle */}
                   <div className="text-right shrink-0 flex items-center gap-3">
                     <div>
-                      <div className="text-sm sm:text-base font-bold text-white font-mono">
+                      <div
+                        className={`text-sm sm:text-base font-bold font-mono ${
+                          isRejected ? 'text-rose-400 line-through' : 'text-white'
+                        }`}
+                      >
                         ₺{Number(receipt.totalAmount).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
                       </div>
                       {receipt.taxAmount ? (
@@ -263,10 +338,15 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
                         <div className="bg-slate-900 rounded-lg p-2 border border-slate-800 divide-y divide-slate-800">
                           {receipt.items.map((item, idx) => (
                             <div key={idx} className="py-1.5 flex items-center justify-between text-xs">
-                              <div className="text-slate-300 font-medium">
-                                {item.name}
+                              <div className="text-slate-300 font-medium flex items-center gap-2">
+                                <span>{item.name}</span>
+                                {item.isProhibited && (
+                                  <span className="text-[10px] bg-rose-500 text-white font-bold px-1.5 py-0.2 rounded">
+                                    KURUMSAL YASAKLI
+                                  </span>
+                                )}
                                 {item.quantity && item.quantity > 1 && (
-                                  <span className="text-slate-500 text-[11px] ml-1.5 font-normal">
+                                  <span className="text-slate-500 text-[11px] font-normal">
                                     ({item.quantity} adet × ₺{item.unitPrice})
                                   </span>
                                 )}
@@ -289,9 +369,15 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
 
                     {/* Metadata & Actions */}
                     <div className="flex items-center justify-between pt-1 text-[11px] text-slate-500">
-                      <div className="flex items-center gap-1.5 text-slate-400">
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>Şifreli Kayıt ID: {receipt.id}</span>
+                      <div className="flex items-center gap-3 text-slate-400">
+                        <div className="flex items-center gap-1.5">
+                          <Building2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Şube: {receiptBranch}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Şifreli Kayıt ID: {receipt.id}</span>
+                        </div>
                       </div>
 
                       <button

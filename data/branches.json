@@ -1,0 +1,58 @@
+[
+  {
+    "id": "br-karabuk",
+    "name": "Karabük Şubesi",
+    "city": "Karabük",
+    "code": "KBK-01",
+    "manager": "Ahmet Yılmaz",
+    "address": "100. Yıl Mah. Atatürk Cad. No:14 Karabük"
+  },
+  {
+    "id": "br-ist-merkez",
+    "name": "İstanbul Merkez",
+    "city": "İstanbul",
+    "code": "IST-01",
+    "manager": "Selin Demir",
+    "address": "Büyükdere Cad. No:193 Levent İstanbul"
+  },
+  {
+    "id": "br-ankara",
+    "name": "Ankara Çankaya Şubesi",
+    "city": "Ankara",
+    "code": "ANK-01",
+    "manager": "Mehmet Kaya",
+    "address": "Tunalı Hilmi Cad. No:45 Çankaya Ankara"
+  },
+  {
+    "id": "br-izmir",
+    "name": "İzmir Konak Şubesi",
+    "city": "İzmir",
+    "code": "IZM-01",
+    "manager": "Ayşe Öztürk",
+    "address": "Cumhuriyet Bulvarı No:88 Konak İzmir"
+  },
+  {
+    "id": "br-bursa",
+    "name": "Bursa Nilüfer Şubesi",
+    "city": "Bursa",
+    "code": "BUR-01",
+    "manager": "Murat Arslan",
+    "address": "FSM Bulvarı No:52 Nilüfer Bursa"
+  },
+  {
+    "id": "br-antalya",
+    "name": "Antalya Muratpaşa Şubesi",
+    "city": "Antalya",
+    "code": "ANT-01",
+    "manager": "Emre Çelik",
+    "address": "Işıklar Cad. No:31 Muratpaşa Antalya"
+  },
+  {
+    "id": "br-kocaeli",
+    "name": "Kocaeli Gebze Şubesi",
+    "city": "Kocaeli",
+    "code": "KOC-01",
+    "manager": "Fatma Şahin",
+    "address": "Bağdat Cad. No:74 Gebze Kocaeli"
+  }
+]

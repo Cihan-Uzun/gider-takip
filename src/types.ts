@@ -19,11 +19,33 @@ export interface ReceiptItem {
   quantity?: number;
   unitPrice?: number;
   totalPrice: number;
+  isProhibited?: boolean;
+  prohibitedReason?: string;
+}
+
+export interface DisallowedRule {
+  id: string;
+  keyword: string; // e.g. "Tekel", "Alkol", "Bira", "Sigara", "Tütün"
+  description?: string;
+  addedAt: string;
+}
+
+export interface BranchInfo {
+  id: string;
+  name: string; // e.g. "Karabük Şubesi"
+  city: string; // e.g. "Karabük"
+  code: string; // e.g. "KBK-01"
+  address?: string;
+  manager?: string;
+  totalSpending?: number;
+  receiptCount?: number;
+  nonCompliantCount?: number;
 }
 
 export interface Receipt {
   id: string;
   merchant: string;
+  branch: string; // e.g. "Karabük Şubesi", "İstanbul Merkez", etc.
   date: string; // YYYY-MM-DD
   time?: string; // HH:mm
   totalAmount: number;
@@ -38,6 +60,11 @@ export interface Receipt {
   imageUrl?: string;
   isUnusualExpense: boolean;
   unusualReason?: string;
+  // Corporate Compliance & Policy Verification
+  isNonCompliant: boolean;
+  complianceReason?: string;
+  nonCompliantItems?: string[];
+  approvalStatus: 'approved' | 'rejected' | 'under_review';
   status: 'processed' | 'pending_2100_queue';
   createdAt: string;
   encryptedHash?: string;

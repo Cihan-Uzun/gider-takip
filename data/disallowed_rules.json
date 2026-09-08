@@ -1,0 +1,80 @@
+[
+  {
+    "id": "rule-tekel",
+    "keyword": "Tekel",
+    "description": "Tekel bayileri ve tütün mamulleri",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-alkol",
+    "keyword": "Alkol",
+    "description": "Tüm alkollü içecekler",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-bira",
+    "keyword": "Bira",
+    "description": "Bira ve malt içecekler",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-sarap",
+    "keyword": "Şarap",
+    "description": "Şarap türevleri",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-raki",
+    "keyword": "Rakı",
+    "description": "Yüksek alkollü içkiler",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-viski",
+    "keyword": "Viski",
+    "description": "Yüksek alkollü içkiler",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-votka",
+    "keyword": "Votka",
+    "description": "Yüksek alkollü içkiler",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-sigara",
+    "keyword": "Sigara",
+    "description": "Sigara ve elektronik sigara",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-tutun",
+    "keyword": "Tütün",
+    "description": "Tütün mamulleri, nargile ve puro",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-puro",
+    "keyword": "Puro",
+    "description": "Tütün mamulleri",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-piyango",
+    "keyword": "Piyango",
+    "description": "Milli piyango ve şans oyunları",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-iddaa",
+    "keyword": "İddaa",
+    "description": "Bahis ve talih oyunları",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  },
+  {
+    "id": "rule-kumar",
+    "keyword": "Casino",
+    "description": "Kumar ve şans oyunları",
+    "addedAt": "2026-09-08T14:16:53.439Z"
+  }
+]
