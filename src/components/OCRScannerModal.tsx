@@ -15,6 +15,7 @@ import {
   Building2,
   AlertOctagon,
   ShieldAlert,
+  HelpCircle,
 } from 'lucide-react';
 import { Receipt, ExpenseCategory, DocumentType, PaymentMethod, ReceiptItem, BranchInfo, DisallowedRule } from '../types';
 
@@ -200,11 +201,33 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
   };
 
   // Quick sample receipts for immediate zero-friction testing
-  const loadSampleReceipt = (type: 'market' | 'fuel' | 'tech' | 'invoice' | 'tekel_rejected') => {
+  const loadSampleReceipt = (type: 'market' | 'fuel' | 'tech' | 'invoice' | 'tekel_rejected' | 'no_branch') => {
     let sampleData: any;
     const today = new Date().toISOString().split('T')[0];
 
-    if (type === 'tekel_rejected') {
+    if (type === 'no_branch') {
+      sampleData = {
+        merchant: 'Köroğlu Kırtasiye & Büro Ltd.',
+        branch: '', // explicitly blank to route to Kontrol Edilecekler
+        date: today,
+        time: '14:20',
+        totalAmount: 1450.00,
+        currency: 'TRY',
+        taxAmount: 241.67,
+        taxRate: 20,
+        category: 'Ofis & Kırtasiye',
+        docType: 'Fiş',
+        docNumber: 'KRT-2026-912',
+        paymentMethod: 'Kredi Kartı',
+        isUnusualExpense: false,
+        items: [
+          { name: 'A4 Fotokopi Kağıdı 5li Koli', quantity: 2, unitPrice: 420, totalPrice: 840 },
+          { name: 'Tükenmez Kalem & Zımba Seti', quantity: 1, unitPrice: 260, totalPrice: 260 },
+          { name: 'Klasör Dosya 10lu Paket', quantity: 1, unitPrice: 350, totalPrice: 350 },
+        ],
+        notes: 'Belgede şube ibaresi yer almıyor - Kontrol Edilecekler alanına aktarılacak',
+      };
+    } else if (type === 'tekel_rejected') {
       sampleData = {
         merchant: 'Karabük Tekel & Şarküteri Büfe',
         branch: 'Karabük Şubesi',
@@ -341,9 +364,12 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
 
     setIsSaving(true);
     try {
+      const isBranchMissing = !branch || branch.trim() === '' || branch === 'Belirtilmemiş';
       await onSaveReceipt({
         merchant,
-        branch: branch.trim() || 'Karabük Şubesi',
+        branch: isBranchMissing ? '' : branch.trim(),
+        needsReview: isBranchMissing,
+        reviewReason: isBranchMissing ? 'Şube bilgisi tespit edilemedi / belirtilmedi - Kullanıcı kontrolü bekleniyor' : undefined,
         date,
         time,
         totalAmount: Number(totalAmount),
@@ -477,7 +503,19 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
                   <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                   Hemen Test Etmek İçin Örnek Belge Seçin:
                 </p>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => loadSampleReceipt('no_branch')}
+                    className="col-span-2 sm:col-span-1 text-left p-2.5 rounded-lg bg-amber-950/40 hover:bg-amber-900/50 border border-amber-500/40 transition group"
+                  >
+                    <span className="text-xs font-bold text-amber-300 block flex items-center gap-1">
+                      <HelpCircle className="w-3 h-3 text-amber-400" />
+                      ❓ Şubesiz Fiş
+                    </span>
+                    <span className="text-[10px] text-amber-200/80 block mt-0.5">1.450 ₺ (Kontrol Edilecek)</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => loadSampleReceipt('tekel_rejected')}
@@ -522,7 +560,7 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
                     onClick={() => loadSampleReceipt('invoice')}
                     className="text-left p-2.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 transition"
                   >
-                    <span className="text-xs font-medium text-amber-400 block">⚡ Turkcell</span>
+                    <span className="text-xs font-medium text-teal-400 block">⚡ Turkcell</span>
                     <span className="text-[11px] text-slate-400 block">640,00 ₺ (Fatura)</span>
                   </button>
                 </div>
@@ -607,25 +645,37 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
               )}
 
               {/* Branch Selector Banner */}
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
-                <div className="flex items-center gap-2 text-xs">
-                  <Building2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span className="font-semibold text-slate-200">Giderin Kaydedileceği Şube:</span>
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3 space-y-2">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2 text-xs">
+                    <Building2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="font-semibold text-slate-200">Giderin Kaydedileceği Şube:</span>
+                  </div>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <select
+                      value={branch}
+                      onChange={(e) => setBranch(e.target.value)}
+                      className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-semibold focus:outline-none focus:border-emerald-500 w-full sm:w-64"
+                    >
+                      <option value="">❓ Şube Belirtilmemiş (Kontrol Edilecekler)</option>
+                      {branchesList.map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                      {!branchesList.includes(branch) && branch && <option value={branch}>{branch}</option>}
+                    </select>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <select
-                    value={branch}
-                    onChange={(e) => setBranch(e.target.value)}
-                    className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-semibold focus:outline-none focus:border-emerald-500 w-full sm:w-60"
-                  >
-                    {branchesList.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                    {!branchesList.includes(branch) && <option value={branch}>{branch}</option>}
-                  </select>
-                </div>
+
+                {(!branch || branch.trim() === '') && (
+                  <div className="text-[11px] text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded-lg p-2.5 flex items-center gap-2">
+                    <HelpCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>
+                      <strong>Şube Belirtilmedi:</strong> Bu belge sisteme kaydedilecek fakat doğrudan bir şubeye atanmayıp <strong>'Kontrol Edilecekler'</strong> alanında tutulacaktır. Daha sonra ilgili şubeyi seçtiğinizde o şubenin bütçe ve kategorisine aktarılacaktır.
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Main Fields Grid */}

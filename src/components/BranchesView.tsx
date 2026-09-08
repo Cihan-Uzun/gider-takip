@@ -11,6 +11,8 @@ import {
   CheckCircle2,
   Search,
   FileSpreadsheet,
+  HelpCircle,
+  ArrowRight,
 } from 'lucide-react';
 import { BranchInfo, Receipt } from '../types';
 
@@ -18,12 +20,14 @@ interface BranchesViewProps {
   receipts: Receipt[];
   onSelectBranchFilter: (branchName: string) => void;
   onOpenScannerForBranch: (branchName: string) => void;
+  onNavigateToReview?: () => void;
 }
 
 export const BranchesView: React.FC<BranchesViewProps> = ({
   receipts,
   onSelectBranchFilter,
   onOpenScannerForBranch,
+  onNavigateToReview,
 }) => {
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -198,6 +202,44 @@ export const BranchesView: React.FC<BranchesViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Unassigned Receipts Banner */}
+      {(() => {
+        const unassignedReceipts = receipts.filter(
+          (r) => r.needsReview || !r.branch || r.branch === 'Belirtilmemiş' || r.branch === 'Şube Belirtilmemiş'
+        );
+        const unassignedTotal = unassignedReceipts.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+
+        if (unassignedReceipts.length === 0 || !onNavigateToReview) return null;
+
+        return (
+          <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/40 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md shadow-amber-950/20">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
+                <HelpCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold text-white">Şube Ataması Bekleyen Belgeler</h4>
+                  <span className="text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full">
+                    {unassignedReceipts.length} Belge (₺{unassignedTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })})
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Belgelerinde şube adı tespit edilemeyen harcamalar 'Kontrol Edilecekler' havuzunda tutuluyor.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onNavigateToReview}
+              className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 shadow-sm"
+            >
+              <span>Kontrol Edilecekleri Aç</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Search Bar */}
       <div className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-3">

@@ -14,6 +14,7 @@ import {
   Building2,
   AlertOctagon,
   Sliders,
+  HelpCircle,
 } from 'lucide-react';
 import { Header } from './components/Header';
 import { ReceiptsList } from './components/ReceiptsList';
@@ -24,15 +25,17 @@ import { BudgetAnalyticsView } from './components/BudgetAnalyticsView';
 import { MorningNotificationModal } from './components/MorningNotificationModal';
 import { AnnualBackupModal } from './components/AnnualBackupModal';
 import { BranchesView } from './components/BranchesView';
+import { NeedsReviewView } from './components/NeedsReviewView';
 import { NonCompliantInvoicesView } from './components/NonCompliantInvoicesView';
 import { CompliancePolicySettingsView } from './components/CompliancePolicySettingsView';
-import { Receipt, MonthlyReport, DailySummary, SystemStatus, DocumentType } from './types';
+import { Receipt, MonthlyReport, DailySummary, SystemStatus, DocumentType, BranchInfo, ExpenseCategory } from './types';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    'receipts' | 'branches' | 'non_compliant' | 'rules' | 'batch2100' | 'monthly' | 'budget'
+    'receipts' | 'branches' | 'needs_review' | 'non_compliant' | 'rules' | 'batch2100' | 'monthly' | 'budget'
   >('receipts');
   const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [queueItems, setQueueItems] = useState<any[]>([]);
   const [monthlyReport, setMonthlyReport] = useState<MonthlyReport | null>(null);
   const [dailySummary, setDailySummary] = useState<DailySummary | null>(null);
@@ -52,12 +55,13 @@ export default function App() {
   const fetchData = async () => {
     try {
       setRefreshing(true);
-      const [recRes, queueRes, monthRes, dailyRes, sysRes] = await Promise.all([
+      const [recRes, queueRes, monthRes, dailyRes, sysRes, branchRes] = await Promise.all([
         fetch('/api/receipts').then((r) => r.json()),
         fetch('/api/receipts/queue').then((r) => r.json()),
         fetch(`/api/reports/monthly?month=${currentMonth}`).then((r) => r.json()),
         fetch('/api/reports/daily-summary').then((r) => r.json()),
         fetch('/api/system/status').then((r) => r.json()),
+        fetch('/api/branches').then((r) => r.json()).catch(() => ({ success: false })),
       ]);
 
       if (recRes.success) setReceipts(recRes.data || []);
@@ -65,6 +69,7 @@ export default function App() {
       if (monthRes.success) setMonthlyReport(monthRes.data || null);
       if (dailyRes.success) setDailySummary(dailyRes.data || null);
       if (sysRes) setSystemStatus(sysRes);
+      if (branchRes?.success && branchRes.data) setBranches(branchRes.data);
     } catch (e) {
       console.error('Error fetching data:', e);
     } finally {
@@ -128,8 +133,40 @@ export default function App() {
     }
   };
 
+  // Handle Assign Single Receipt to Branch
+  const handleAssignBranch = async (id: string, branch: string, category?: ExpenseCategory, notes?: string) => {
+    const res = await fetch(`/api/receipts/${id}/assign-branch`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch, category, notes }),
+    });
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Şube ataması yapılamadı');
+    }
+    await fetchData();
+  };
+
+  // Handle Batch Assign Receipts to Branch
+  const handleBatchAssignBranch = async (ids: string[], branch: string) => {
+    const res = await fetch('/api/receipts/batch-assign-branch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, branch }),
+    });
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Toplu şube ataması yapılamadı');
+    }
+    await fetchData();
+  };
+
   const rejectedReceiptsCount = receipts.filter(
     (r) => r.isNonCompliant || r.approvalStatus === 'rejected'
+  ).length;
+
+  const needsReviewCount = receipts.filter(
+    (r) => r.needsReview || !r.branch || r.branch === 'Belirtilmemiş' || r.branch === 'Şube Belirtilmemiş'
   ).length;
 
   return (
@@ -183,6 +220,28 @@ export default function App() {
               <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded-full font-mono">
                 Türkiye
               </span>
+            </button>
+
+            {/* Needs Review / Unassigned Branch Tab */}
+            <button
+              onClick={() => setActiveTab('needs_review')}
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                activeTab === 'needs_review'
+                  ? 'bg-amber-950/70 text-amber-200 border border-amber-500/50 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <HelpCircle className="w-4 h-4 text-amber-400" />
+              <span>Kontrol Edilecekler</span>
+              {needsReviewCount > 0 ? (
+                <span className="text-[10px] bg-amber-500 text-slate-950 font-black px-1.5 py-0.2 rounded-full shadow-sm">
+                  {needsReviewCount}
+                </span>
+              ) : (
+                <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded-full font-mono">
+                  0
+                </span>
+              )}
             </button>
 
             {/* Non-Compliant / Rejected Tab */}
@@ -290,6 +349,7 @@ export default function App() {
                 onDeleteReceipt={handleDeleteReceipt}
                 onOpenScanner={() => setIsScannerOpen(true)}
                 initialBranchFilter={branchFilterForReceipts}
+                onNavigateToReview={() => setActiveTab('needs_review')}
               />
             )}
 
@@ -304,6 +364,20 @@ export default function App() {
                   setScannerInitialBranch(branchName);
                   setIsScannerOpen(true);
                 }}
+                onNavigateToReview={() => setActiveTab('needs_review')}
+              />
+            )}
+
+            {activeTab === 'needs_review' && (
+              <NeedsReviewView
+                receipts={receipts}
+                branches={branches}
+                onAssignBranch={handleAssignBranch}
+                onBatchAssignBranch={handleBatchAssignBranch}
+                onDeleteReceipt={handleDeleteReceipt}
+                onOpenScanner={() => setIsScannerOpen(true)}
+                onRefresh={fetchData}
+                onNavigateToBranches={() => setActiveTab('branches')}
               />
             )}
 
@@ -387,6 +461,19 @@ export default function App() {
         >
           <Building2 className="w-4 h-4" />
           <span>Şubeler</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('needs_review')}
+          className={`flex flex-col items-center gap-1 p-1.5 rounded-lg transition relative ${
+            activeTab === 'needs_review' ? 'text-amber-400 font-bold' : 'text-slate-400'
+          }`}
+        >
+          <HelpCircle className="w-4 h-4" />
+          <span>Kontrol</span>
+          {needsReviewCount > 0 && (
+            <span className="absolute top-0 right-1 w-2 h-2 bg-amber-500 rounded-full" />
+          )}
         </button>
 
         <button

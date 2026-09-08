@@ -42,6 +42,14 @@ export interface BranchInfo {
   nonCompliantCount?: number;
 }
 
+export interface ReceiptAttachment {
+  fileName: string;
+  fileType: string; // 'application/pdf', 'image/jpeg', 'image/png', 'image/webp', etc.
+  fileSize?: number;
+  fileData: string; // Base64 data URI (data:application/pdf;base64,... or data:image/...;base64,...)
+  uploadedAt?: string;
+}
+
 export interface Receipt {
   id: string;
   merchant: string;
@@ -58,6 +66,7 @@ export interface Receipt {
   docNumber?: string;
   items: ReceiptItem[];
   imageUrl?: string;
+  attachment?: ReceiptAttachment; // Preserves exact original uploaded file (PDF, Image, etc.)
   isUnusualExpense: boolean;
   unusualReason?: string;
   // Corporate Compliance & Policy Verification
@@ -65,6 +74,8 @@ export interface Receipt {
   complianceReason?: string;
   nonCompliantItems?: string[];
   approvalStatus: 'approved' | 'rejected' | 'under_review';
+  needsReview?: boolean; // true if missing branch or unassigned
+  reviewReason?: string; // e.g. "Şube bilgisi eksik - Kontrol ve şube ataması bekleniyor"
   status: 'processed' | 'pending_2100_queue';
   createdAt: string;
   encryptedHash?: string;

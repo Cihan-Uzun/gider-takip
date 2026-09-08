@@ -14,6 +14,8 @@ import {
   ShieldCheck,
   Building2,
   AlertOctagon,
+  HelpCircle,
+  AlertCircle,
 } from 'lucide-react';
 import { Receipt, ExpenseCategory, DocumentType } from '../types';
 
@@ -22,6 +24,7 @@ interface ReceiptsListProps {
   onDeleteReceipt: (id: string) => void;
   onOpenScanner: () => void;
   initialBranchFilter?: string;
+  onNavigateToReview?: () => void;
 }
 
 const CATEGORY_COLORS: { [key: string]: string } = {
@@ -41,6 +44,7 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
   onDeleteReceipt,
   onOpenScanner,
   initialBranchFilter = 'Tümü',
+  onNavigateToReview,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Tümü');
@@ -81,8 +85,37 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
     setExpandedId(expandedId === id ? null : id);
   };
 
+  const pendingReviewCount = receipts.filter(
+    (r) => r.needsReview || !r.branch || r.branch === 'Belirtilmemiş' || r.branch === 'Şube Belirtilmemiş'
+  ).length;
+
   return (
     <div className="space-y-4">
+      {/* Pending Review Notice Banner */}
+      {pendingReviewCount > 0 && onNavigateToReview && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-md shadow-amber-950/20">
+          <div className="flex items-center gap-2.5 text-amber-200">
+            <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+              <HelpCircle className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="font-bold text-amber-300">
+                {pendingReviewCount} adet belgenin şube bilgisi eksik!
+              </span>
+              <p className="text-[11px] text-amber-200/80 mt-0.5">
+                Şube seçimi yapılmadığı için 'Kontrol Edilecekler' alanında bekletiliyor. İlgili şubeyi ve kategoriyi atayabilirsiniz.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onNavigateToReview}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold transition shrink-0 self-start sm:self-auto flex items-center gap-1"
+          >
+            Kontrol Et & Şubeye Ata →
+          </button>
+        </div>
+      )}
+
       {/* Top Filter & Search Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -204,7 +237,12 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
             const isExpanded = expandedId === receipt.id;
             const categoryStyle =
               CATEGORY_COLORS[receipt.category] || 'bg-slate-500/10 text-slate-400 border-slate-500/20';
-            const receiptBranch = receipt.branch || 'Karabük Şubesi';
+            const isNeedsReview =
+              receipt.needsReview ||
+              !receipt.branch ||
+              receipt.branch === 'Belirtilmemiş' ||
+              receipt.branch === 'Şube Belirtilmemiş';
+            const receiptBranch = isNeedsReview ? 'Şube Belirtilmemiş' : (receipt.branch || 'Karabük Şubesi');
             const isRejected = receipt.isNonCompliant || receipt.approvalStatus === 'rejected';
 
             return (
@@ -213,6 +251,8 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
                 className={`bg-slate-900 border transition rounded-xl overflow-hidden ${
                   isRejected
                     ? 'border-rose-500/50 bg-rose-950/20 shadow-sm shadow-rose-500/5'
+                    : isNeedsReview
+                    ? 'border-amber-500/40 shadow-sm shadow-amber-500/5'
                     : receipt.isUnusualExpense
                     ? 'border-amber-500/50 shadow-sm shadow-amber-500/5'
                     : 'border-slate-800 hover:border-slate-700'
@@ -228,11 +268,15 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
                       className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 mt-0.5 ${
                         isRejected
                           ? 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+                          : isNeedsReview
+                          ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
                           : 'bg-slate-800 border-slate-700/80 text-slate-300'
                       }`}
                     >
                       {isRejected ? (
                         <AlertOctagon className="w-4 h-4 text-rose-400" />
+                      ) : isNeedsReview ? (
+                        <HelpCircle className="w-4 h-4 text-amber-400" />
                       ) : (
                         <ReceiptIcon className="w-4 h-4 text-emerald-400" />
                       )}
@@ -245,10 +289,25 @@ export const ReceiptsList: React.FC<ReceiptsListProps> = ({
                         </h3>
 
                         {/* Branch badge */}
-                        <span className="text-[10px] font-semibold bg-slate-800 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <Building2 className="w-2.5 h-2.5" />
-                          {receiptBranch}
-                        </span>
+                        {isNeedsReview ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onNavigateToReview?.();
+                            }}
+                            className="text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 transition"
+                            title="Şube bilgisi eksik - Kontrol Edilecekler alanında ata"
+                          >
+                            <AlertCircle className="w-2.5 h-2.5" />
+                            Şube Bekliyor (Ata)
+                          </button>
+                        ) : (
+                          <span className="text-[10px] font-semibold bg-slate-800 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <Building2 className="w-2.5 h-2.5" />
+                            {receiptBranch}
+                          </span>
+                        )}
 
                         <span className={`text-[10px] font-medium border px-2 py-0.5 rounded-full ${categoryStyle}`}>
                           {receipt.category}
