@@ -1,0 +1,6 @@
+{
+  "name": "Gider & Fiş Düzenleyici",
+  "description": "Makbuz, fiş ve faturaları OCR ile tarayan, şifreli bulut veri saklama, bütçe yönetimi, günlük 21:00 toplu tarama, PDF arşivleme ve sabah harcama özeti bildirimleri sunan mobil uyumlu web uygulaması.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

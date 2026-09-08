@@ -1,0 +1,343 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Receipt as ReceiptIcon,
+  Clock,
+  PieChart,
+  Target,
+  Bell,
+  Cloud,
+  Camera,
+  Plus,
+  ShieldCheck,
+  Smartphone,
+  Calendar,
+} from 'lucide-react';
+import { Header } from './components/Header';
+import { ReceiptsList } from './components/ReceiptsList';
+import { OCRScannerModal } from './components/OCRScannerModal';
+import { BatchQueue2100 } from './components/BatchQueue2100';
+import { MonthlyReportsView } from './components/MonthlyReportsView';
+import { BudgetAnalyticsView } from './components/BudgetAnalyticsView';
+import { MorningNotificationModal } from './components/MorningNotificationModal';
+import { AnnualBackupModal } from './components/AnnualBackupModal';
+import { Receipt, MonthlyReport, DailySummary, SystemStatus, DocumentType } from './types';
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<'receipts' | 'batch2100' | 'monthly' | 'budget'>('receipts');
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [queueItems, setQueueItems] = useState<any[]>([]);
+  const [monthlyReport, setMonthlyReport] = useState<MonthlyReport | null>(null);
+  const [dailySummary, setDailySummary] = useState<DailySummary | null>(null);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [currentMonth, setCurrentMonth] = useState(() => new Date().toISOString().substring(0, 7));
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Modals
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [isCloudModalOpen, setIsCloudModalOpen] = useState(false);
+
+  // Initial Data Load
+  const fetchData = async () => {
+    try {
+      setRefreshing(true);
+      const [recRes, queueRes, monthRes, dailyRes, sysRes] = await Promise.all([
+        fetch('/api/receipts').then((r) => r.json()),
+        fetch('/api/receipts/queue').then((r) => r.json()),
+        fetch(`/api/reports/monthly?month=${currentMonth}`).then((r) => r.json()),
+        fetch('/api/reports/daily-summary').then((r) => r.json()),
+        fetch('/api/system/status').then((r) => r.json()),
+      ]);
+
+      if (recRes.success) setReceipts(recRes.data || []);
+      if (queueRes.success) setQueueItems(queueRes.data || []);
+      if (monthRes.success) setMonthlyReport(monthRes.data || null);
+      if (dailyRes.success) setDailySummary(dailyRes.data || null);
+      if (sysRes) setSystemStatus(sysRes);
+    } catch (e) {
+      console.error('Error fetching data:', e);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [currentMonth]);
+
+  // Handle Save Receipt from OCR
+  const handleSaveReceipt = async (receiptData: Partial<Receipt>) => {
+    const res = await fetch('/api/receipts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(receiptData),
+    });
+    const data = await res.json();
+    if (data.success) {
+      await fetchData();
+    } else {
+      throw new Error(data.error || 'Fiş kaydedilemedi');
+    }
+  };
+
+  // Handle Delete Receipt
+  const handleDeleteReceipt = async (id: string) => {
+    const res = await fetch(`/api/receipts/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      setReceipts((prev) => prev.filter((r) => r.id !== id));
+      fetchData();
+    }
+  };
+
+  // Handle Add to 21:00 Queue
+  const handleQueueFor2100 = async (item: { name: string; imageBase64: string; docType: DocumentType }) => {
+    const res = await fetch('/api/receipts/queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item),
+    });
+    const data = await res.json();
+    if (data.success) {
+      await fetchData();
+    } else {
+      throw new Error(data.error || 'Kuyruğa eklenemedi');
+    }
+  };
+
+  // Run 21:00 Batch Process
+  const handleRunBatch2100 = async () => {
+    const res = await fetch('/api/receipts/run-batch-2100', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      await fetchData();
+    } else {
+      throw new Error(data.error || 'Toplu tarama başarısız');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col antialiased selection:bg-emerald-500 selection:text-slate-950">
+      {/* Top Header */}
+      <Header
+        systemStatus={systemStatus}
+        onOpenNotifications={() => setIsNotificationModalOpen(true)}
+        onOpenCloudSync={() => setIsCloudModalOpen(true)}
+        onOpen2100Queue={() => setActiveTab('batch2100')}
+        pendingQueueCount={queueItems.length}
+        hasUnusualSpendToday={Boolean(dailySummary?.hasUnusualExpense)}
+        refreshing={refreshing}
+        onRefresh={fetchData}
+      />
+
+      {/* Main Container */}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 pb-24 md:pb-8 space-y-4">
+        {/* Navigation Tabs (Desktop & Tablet) */}
+        <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar py-0.5">
+            <button
+              onClick={() => setActiveTab('receipts')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                activeTab === 'receipts'
+                  ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <ReceiptIcon className="w-4 h-4 text-emerald-400" />
+              <span>Fişler & Faturalar</span>
+              <span className="text-[10px] bg-slate-900 text-slate-400 px-1.5 py-0.5 rounded-full font-mono">
+                {receipts.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('batch2100')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                activeTab === 'batch2100'
+                  ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <Clock className="w-4 h-4 text-amber-400" />
+              <span>21:00 Otomatik Tarama</span>
+              {queueItems.length > 0 && (
+                <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded-full font-bold">
+                  {queueItems.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('monthly')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                activeTab === 'monthly'
+                  ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <PieChart className="w-4 h-4 text-teal-400" />
+              <span>Aylık Rapor & PDF</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('budget')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                activeTab === 'budget'
+                  ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <Target className="w-4 h-4 text-indigo-400" />
+              <span>Bütçe & Analiz</span>
+              {dailySummary?.hasUnusualExpense && (
+                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+              )}
+            </button>
+          </div>
+
+          {/* Quick Scanner Action in Desktop */}
+          <div className="hidden sm:flex items-center gap-2">
+            <button
+              onClick={() => setIsScannerOpen(true)}
+              className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold px-4 py-2 rounded-xl shadow-md shadow-emerald-500/20 transition"
+            >
+              <Camera className="w-4 h-4" />
+              <span>Yeni Fiş / Fatura Tara</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Tab Contents */}
+        {isLoading ? (
+          <div className="py-20 text-center space-y-3">
+            <div className="w-10 h-10 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-xs text-slate-400">Şifreli bulut veritabanından fişler yükleniyor...</p>
+          </div>
+        ) : (
+          <div>
+            {activeTab === 'receipts' && (
+              <ReceiptsList
+                receipts={receipts}
+                onDeleteReceipt={handleDeleteReceipt}
+                onOpenScanner={() => setIsScannerOpen(true)}
+              />
+            )}
+
+            {activeTab === 'batch2100' && (
+              <BatchQueue2100
+                queueItems={queueItems}
+                lastBatchRun={systemStatus?.batch2100.lastRunAt || new Date().toISOString()}
+                onRunBatch={handleRunBatch2100}
+                receipts={receipts}
+                monthlyReport={monthlyReport}
+              />
+            )}
+
+            {activeTab === 'monthly' && (
+              <MonthlyReportsView
+                monthlyReport={monthlyReport}
+                receipts={receipts}
+                currentMonth={currentMonth}
+                onChangeMonth={(m) => setCurrentMonth(m)}
+              />
+            )}
+
+            {activeTab === 'budget' && (
+              <BudgetAnalyticsView
+                monthlyReport={monthlyReport}
+                receipts={receipts}
+              />
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* Floating Action Button (Mobile First) */}
+      <div className="fixed bottom-16 right-4 sm:bottom-6 sm:right-6 z-40">
+        <button
+          onClick={() => setIsScannerOpen(true)}
+          className="flex items-center gap-2 bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 font-bold text-xs sm:text-sm px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl shadow-xl shadow-emerald-500/25 transition transform hover:scale-105 active:scale-95"
+        >
+          <Camera className="w-5 h-5" />
+          <span className="font-extrabold tracking-tight">Fiş / Fatura Tara (OCR)</span>
+        </button>
+      </div>
+
+      {/* Mobile Bottom Navigation Bar */}
+      <div className="md:hidden fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 z-30 px-2 py-1.5 flex items-center justify-around text-[10px]">
+        <button
+          onClick={() => setActiveTab('receipts')}
+          className={`flex flex-col items-center gap-1 p-1.5 rounded-lg transition ${
+            activeTab === 'receipts' ? 'text-emerald-400 font-bold' : 'text-slate-400'
+          }`}
+        >
+          <ReceiptIcon className="w-4 h-4" />
+          <span>Fişler</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('batch2100')}
+          className={`flex flex-col items-center gap-1 p-1.5 rounded-lg transition relative ${
+            activeTab === 'batch2100' ? 'text-amber-400 font-bold' : 'text-slate-400'
+          }`}
+        >
+          <Clock className="w-4 h-4" />
+          <span>21:00 Kuyruk</span>
+          {queueItems.length > 0 && (
+            <span className="absolute top-0 right-1 w-2 h-2 bg-amber-500 rounded-full" />
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('monthly')}
+          className={`flex flex-col items-center gap-1 p-1.5 rounded-lg transition ${
+            activeTab === 'monthly' ? 'text-teal-400 font-bold' : 'text-slate-400'
+          }`}
+        >
+          <PieChart className="w-4 h-4" />
+          <span>Rapor & PDF</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('budget')}
+          className={`flex flex-col items-center gap-1 p-1.5 rounded-lg transition ${
+            activeTab === 'budget' ? 'text-indigo-400 font-bold' : 'text-slate-400'
+          }`}
+        >
+          <Target className="w-4 h-4" />
+          <span>Bütçe</span>
+        </button>
+
+        <button
+          onClick={() => setIsNotificationModalOpen(true)}
+          className="flex flex-col items-center gap-1 p-1.5 rounded-lg text-slate-400 hover:text-white transition"
+        >
+          <Bell className="w-4 h-4 text-amber-400" />
+          <span>Sabah Özeti</span>
+        </button>
+      </div>
+
+      {/* Modals */}
+      <OCRScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onSaveReceipt={handleSaveReceipt}
+        onQueueFor2100={handleQueueFor2100}
+      />
+
+      <MorningNotificationModal
+        isOpen={isNotificationModalOpen}
+        onClose={() => setIsNotificationModalOpen(false)}
+        dailySummary={dailySummary}
+      />
+
+      <AnnualBackupModal
+        isOpen={isCloudModalOpen}
+        onClose={() => setIsCloudModalOpen(false)}
+        receipts={receipts}
+      />
+    </div>
+  );
+}
