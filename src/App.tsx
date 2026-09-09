@@ -15,6 +15,8 @@ import {
   AlertOctagon,
   Sliders,
   HelpCircle,
+  FolderOpen,
+  Paperclip,
 } from 'lucide-react';
 import { Header } from './components/Header';
 import { ReceiptsList } from './components/ReceiptsList';
@@ -28,6 +30,8 @@ import { BranchesView } from './components/BranchesView';
 import { NeedsReviewView } from './components/NeedsReviewView';
 import { NonCompliantInvoicesView } from './components/NonCompliantInvoicesView';
 import { CompliancePolicySettingsView } from './components/CompliancePolicySettingsView';
+import { DocumentAttachmentModal } from './components/DocumentAttachmentModal';
+import { BatchFolderScannerModal } from './components/BatchFolderScannerModal';
 import { Receipt, MonthlyReport, DailySummary, SystemStatus, DocumentType, BranchInfo, ExpenseCategory } from './types';
 
 export default function App() {
@@ -50,6 +54,8 @@ export default function App() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [isCloudModalOpen, setIsCloudModalOpen] = useState(false);
+  const [selectedReceiptForAttachment, setSelectedReceiptForAttachment] = useState<Receipt | null>(null);
+  const [isFolderScannerOpen, setIsFolderScannerOpen] = useState(false);
 
   // Initial Data Load
   const fetchData = async () => {
@@ -320,8 +326,17 @@ export default function App() {
             </button>
           </div>
 
-          {/* Quick Scanner Action in Desktop */}
+          {/* Quick Scanner Actions in Desktop */}
           <div className="hidden sm:flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setIsFolderScannerOpen(true)}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/40 text-xs font-semibold px-3 py-2 rounded-xl transition"
+              title="Bilgisayarınızdaki klasörün içindeki tüm evrakları (PDF ve görselleri) toplu tarayın"
+            >
+              <FolderOpen className="w-4 h-4 text-emerald-400" />
+              <span>📁 Klasör Tara</span>
+            </button>
+
             <button
               onClick={() => {
                 setScannerInitialBranch('Karabük Şubesi');
@@ -350,6 +365,8 @@ export default function App() {
                 onOpenScanner={() => setIsScannerOpen(true)}
                 initialBranchFilter={branchFilterForReceipts}
                 onNavigateToReview={() => setActiveTab('needs_review')}
+                onViewAttachment={(r) => setSelectedReceiptForAttachment(r)}
+                onOpenFolderScanner={() => setIsFolderScannerOpen(true)}
               />
             )}
 
@@ -378,6 +395,8 @@ export default function App() {
                 onOpenScanner={() => setIsScannerOpen(true)}
                 onRefresh={fetchData}
                 onNavigateToBranches={() => setActiveTab('branches')}
+                onViewAttachment={(r) => setSelectedReceiptForAttachment(r)}
+                onOpenFolderScanner={() => setIsFolderScannerOpen(true)}
               />
             )}
 
@@ -386,6 +405,7 @@ export default function App() {
                 receipts={receipts}
                 onDeleteReceipt={handleDeleteReceipt}
                 onOpenComplianceSettings={() => setActiveTab('rules')}
+                onViewAttachment={(r) => setSelectedReceiptForAttachment(r)}
               />
             )}
 
@@ -532,6 +552,19 @@ export default function App() {
         isOpen={isCloudModalOpen}
         onClose={() => setIsCloudModalOpen(false)}
         receipts={receipts}
+      />
+
+      <DocumentAttachmentModal
+        receipt={selectedReceiptForAttachment}
+        onClose={() => setSelectedReceiptForAttachment(null)}
+      />
+
+      <BatchFolderScannerModal
+        isOpen={isFolderScannerOpen}
+        onClose={() => setIsFolderScannerOpen(false)}
+        onBatchComplete={() => {
+          fetchData();
+        }}
       />
     </div>
   );

@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Info,
+  Paperclip,
+  Eye,
 } from 'lucide-react';
 import { Receipt } from '../types';
 
@@ -20,12 +22,14 @@ interface NonCompliantInvoicesViewProps {
   receipts: Receipt[];
   onDeleteReceipt: (id: string) => void;
   onOpenComplianceSettings: () => void;
+  onViewAttachment?: (receipt: Receipt) => void;
 }
 
 export const NonCompliantInvoicesView: React.FC<NonCompliantInvoicesViewProps> = ({
   receipts,
   onDeleteReceipt,
   onOpenComplianceSettings,
+  onViewAttachment,
 }) => {
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -244,7 +248,7 @@ export const NonCompliantInvoicesView: React.FC<NonCompliantInvoicesViewProps> =
                         ))}
                       </div>
 
-                      <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1.5">
+                      <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1.5 flex-wrap">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3 h-3 text-slate-500" />
                           {receipt.date} {receipt.time || ''}
@@ -258,6 +262,21 @@ export const NonCompliantInvoicesView: React.FC<NonCompliantInvoicesViewProps> =
                             #{receipt.docNumber}
                           </span>
                         )}
+
+                        {/* View Attached Document Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onViewAttachment?.(receipt);
+                          }}
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-teal-300 hover:text-teal-200 bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/30 px-2 py-0.5 rounded-md transition"
+                          title="Faturanın veya fişin orijinal görsel/PDF halini incele"
+                        >
+                          <Paperclip className="w-3 h-3 text-teal-400" />
+                          <span>Orijinal Belgeyi Gör ({receipt.attachment?.fileType === 'application/pdf' || receipt.docType === 'E-Fatura' ? 'PDF' : 'Görsel'})</span>
+                          <Eye className="w-3 h-3 ml-0.5" />
+                        </button>
                       </div>
                     </div>
                   </div>

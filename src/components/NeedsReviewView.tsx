@@ -15,6 +15,9 @@ import {
   Plus,
   Clock,
   ShieldCheck,
+  Paperclip,
+  Eye,
+  FolderOpen,
 } from 'lucide-react';
 import { Receipt, ExpenseCategory, BranchInfo } from '../types';
 
@@ -27,6 +30,8 @@ interface NeedsReviewViewProps {
   onOpenScanner: () => void;
   onRefresh: () => void;
   onNavigateToBranches?: () => void;
+  onViewAttachment?: (receipt: Receipt) => void;
+  onOpenFolderScanner?: () => void;
 }
 
 const CATEGORIES: ExpenseCategory[] = [
@@ -50,6 +55,8 @@ export const NeedsReviewView: React.FC<NeedsReviewViewProps> = ({
   onOpenScanner,
   onRefresh,
   onNavigateToBranches,
+  onViewAttachment,
+  onOpenFolderScanner,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -407,6 +414,18 @@ export const NeedsReviewView: React.FC<NeedsReviewViewProps> = ({
                         <span className="text-slate-300 font-medium">
                           Mevcut Kategori: <strong className="text-white">{receipt.category}</strong>
                         </span>
+
+                        {/* View Attached Document Button */}
+                        <button
+                          type="button"
+                          onClick={() => onViewAttachment?.(receipt)}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-300 hover:text-teal-200 bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/40 px-2 py-0.5 rounded-md transition"
+                          title="Faturanın veya fişin orijinal görsel/PDF halini incele"
+                        >
+                          <Paperclip className="w-3 h-3 text-teal-400" />
+                          <span>Ekli Belgeyi Aç ({receipt.attachment?.fileType === 'application/pdf' || receipt.docType === 'E-Fatura' ? 'PDF' : 'Görsel'})</span>
+                          <Eye className="w-3 h-3 ml-0.5" />
+                        </button>
                       </div>
 
                       {/* Items preview */}

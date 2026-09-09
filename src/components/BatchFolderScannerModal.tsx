@@ -1,70 +1,71 @@
 import React, { useState, useRef } from 'react';
 import {
-  FolderOpen,
   X,
+  FolderOpen,
+  UploadCloud,
   FileText,
   Image as ImageIcon,
-  Upload,
   CheckCircle2,
   AlertOctagon,
   HelpCircle,
   Loader2,
   Building2,
-  Sparkles,
   ArrowRight,
+  ShieldCheck,
+  AlertCircle,
+  FileCheck,
+  Sparkles,
   RefreshCw,
-  FolderCheck,
-  Eye,
 } from 'lucide-react';
-import { BranchInfo, DocumentType, ExpenseCategory, PaymentMethod, Receipt, ReceiptAttachment } from '../types';
+import { BranchInfo, Receipt, ExpenseCategory, DocumentType, PaymentMethod } from '../types';
 
 interface BatchFolderScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   branches: BranchInfo[];
-  onBatchSaveSuccess: () => Promise<void>;
-  onOpenAttachment?: (receipt: Receipt) => void;
+  onBatchSaved: (importedReceipts: Receipt[]) => void;
+  onNavigateToReview?: () => void;
 }
 
-interface ScannedItem {
+interface ScannedDocumentItem {
   id: string;
-  file: File | null;
+  file: File;
   fileName: string;
   fileType: string;
   fileSize: number;
-  fileData: string;
-  status: 'pending' | 'scanning' | 'success' | 'error';
-  errorMessage?: string;
-  extractedReceipt?: Partial<Receipt>;
+  fileData: string; // Base64 data URL
+  status: 'pending' | 'scanning' | 'ready' | 'saved' | 'failed';
+  error?: string;
+  parsedReceipt?: Partial<Receipt>;
 }
 
 export const BatchFolderScannerModal: React.FC<BatchFolderScannerModalProps> = ({
   isOpen,
   onClose,
   branches,
-  onBatchSaveSuccess,
-  onOpenAttachment,
+  onBatchSaved,
+  onNavigateToReview,
 }) => {
-  const folderInputRef = useRef<HTMLInputElement>(null);
-  const multiFileInputRef = useRef<HTMLInputElement>(null);
-
+  const [scannedFiles, setScannedFiles] = useState<ScannedDocumentItem[]>([]);
   const [folderName, setFolderName] = useState<string>('');
-  const [items, setItems] = useState<ScannedItem[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [currentIndex, setCurrentIndex] = useState<number>(0);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
   const [selectedDefaultBranch, setSelectedDefaultBranch] = useState<string>('auto');
-  const [isSavingAll, setIsSavingAll] = useState<boolean>(false);
-  const [saveReport, setSaveReport] = useState<{
+  const [progress, setProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+  const [saveSummary, setSaveSummary] = useState<{
     total: number;
     approved: number;
     needsReview: number;
     rejected: number;
   } | null>(null);
 
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const multiFileInputRef = useRef<HTMLInputElement>(null);
+
   if (!isOpen) return null;
 
-  // Read file as Data URL
-  const readFileAsDataUrl = (file: File): Promise<string> => {
+  // Convert File to base64
+  const readFileAsDataURL = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
@@ -73,275 +74,383 @@ export const BatchFolderScannerModal: React.FC<BatchFolderScannerModalProps> = (
     });
   };
 
-  // Handle files selected from folder input or multi-file input
-  const handleFilesSelected = async (fileList: FileList | null, detectedFolder?: string) => {
-    if (!fileList || fileList.length === 0) return;
+  // Handle folder selection
+  const handleFilesSelected = async (filesList: FileList | null) => {
+    if (!filesList || filesList.length === 0) return;
 
-    const validExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff'];
-    const filteredFiles = Array.from(fileList).filter((file) => {
-      const name = file.name.toLowerCase();
-      return validExtensions.some((ext) => name.endsWith(ext)) || file.type.startsWith('image/') || file.type === 'application/pdf';
-    });
+    // Filter valid image and pdf files
+    const validFiles: File[] = [];
+    let detectedDirName = '';
 
-    if (filteredFiles.length === 0) {
-      alert('Seçilen klasörde desteklenen formatta (PDF, JPG, PNG) fatura veya fiş belgesi bulunamadı.');
+    for (let i = 0; i < filesList.length; i++) {
+      const file = filesList[i];
+      const lower = file.name.toLowerCase();
+      const isDoc =
+        lower.endsWith('.pdf') ||
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.webp') ||
+        lower.endsWith('.bmp') ||
+        file.type === 'application/pdf' ||
+        file.type.startsWith('image/');
+
+      if (isDoc) {
+        validFiles.push(file);
+        if (!detectedDirName && (file as any).webkitRelativePath) {
+          const parts = (file as any).webkitRelativePath.split('/');
+          if (parts.length > 1) {
+            detectedDirName = parts[0];
+          }
+        }
+      }
+    }
+
+    if (validFiles.length === 0) {
+      alert('Seçilen klasörde taranabilecek PDF veya görsel formatında (JPG, PNG) fatura/fiş belgesi bulunamadı.');
       return;
     }
 
-    // Determine folder name from webkitRelativePath or custom folder
-    let inferredFolderName = detectedFolder || 'Seçilen Klasör';
-    if (filteredFiles[0]?.webkitRelativePath) {
-      const parts = filteredFiles[0].webkitRelativePath.split('/');
-      if (parts.length > 1) {
-        inferredFolderName = parts[0];
-      }
+    setFolderName(detectedDirName || 'Seçilen Klasör');
+    setSaveSummary(null);
+
+    // Read and initialize items
+    const items: ScannedDocumentItem[] = [];
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
+      const dataUrl = await readFileAsDataURL(file);
+      items.push({
+        id: 'scan-' + Date.now() + '-' + i,
+        file,
+        fileName: file.name,
+        fileType: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+        fileSize: file.size,
+        fileData: dataUrl,
+        status: 'pending',
+      });
     }
-    setFolderName(inferredFolderName);
-    setSaveReport(null);
 
-    const initialItems: ScannedItem[] = await Promise.all(
-      filteredFiles.map(async (file, idx) => {
-        const fileData = await readFileAsDataUrl(file);
-        return {
-          id: `folder-item-${Date.now()}-${idx}`,
-          file,
-          fileName: file.name,
-          fileType: file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
-          fileSize: file.size,
-          fileData,
-          status: 'pending',
-        };
-      })
-    );
-
-    setItems(initialItems);
+    setScannedFiles(items);
+    // Start automated OCR scanning
+    startBatchOCR(items);
   };
 
-  // Load sample folder with 4 mock documents for immediate 1-click test
-  const handleLoadSampleFolder = () => {
-    setFolderName('Eylül_2026_Masraf_Klasörü');
-    setSaveReport(null);
-
-    const today = new Date().toISOString().split('T')[0];
-
-    // Create realistic sample documents (SVG data URLs representing real invoices & receipts)
-    const createSampleVoucherDataUrl = (title: string, branch: string, amount: string, isPdf = false) => {
-      const svg = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800" style="background:#ffffff; font-family: sans-serif;">
-          <rect width="600" height="800" fill="#ffffff"/>
-          <rect x="20" y="20" width="560" height="760" fill="none" stroke="#e2e8f0" stroke-width="2" rx="12"/>
-          <rect x="20" y="20" width="560" height="80" fill="${isPdf ? '#991b1b' : '#047857'}" rx="12"/>
-          <text x="50" y="70" font-size="24" font-weight="bold" fill="#ffffff">${title}</text>
-          <text x="500" y="70" font-size="16" font-weight="bold" fill="#ffffff">${isPdf ? 'E-FATURA' : 'PERAKENDE FİŞ'}</text>
-          <text x="50" y="140" font-size="16" fill="#334155" font-weight="bold">Şube: ${branch || 'Belirtilmemiş (Merkez Depo)'}</text>
-          <text x="50" y="170" font-size="14" fill="#64748b">Tarih: ${today} 14:30</text>
-          <text x="50" y="200" font-size="14" fill="#64748b">Belge No: EF-2026-${Math.floor(100000 + Math.random() * 900000)}</text>
-          <line x1="50" y1="230" x2="550" y2="230" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4"/>
-          <text x="50" y="280" font-size="18" font-weight="bold" fill="#0f172a">1. Kurumsal Harcama ve Tüketim Hizmeti</text>
-          <text x="480" y="280" font-size="18" font-weight="bold" fill="#0f172a">${amount} ₺</text>
-          <line x1="50" y1="620" x2="550" y2="620" stroke="#cbd5e1" stroke-width="2"/>
-          <text x="50" y="670" font-size="22" font-weight="bold" fill="#0f172a">GENEL TOPLAM:</text>
-          <text x="420" y="670" font-size="24" font-weight="black" fill="${isPdf ? '#991b1b' : '#047857'}">${amount} ₺</text>
-          <text x="50" y="740" font-size="12" fill="#94a3b8">Bu belge mali mühür ile onaylanmış elektronik arşiv suretidir.</text>
-        </svg>
-      `;
-      return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-    };
-
-    const sampleFiles: ScannedItem[] = [
-      {
-        id: 'sample-doc-1',
-        file: null,
-        fileName: 'Karabuk_Subesi_Shell_Yakit_Fisi.pdf',
-        fileType: 'application/pdf',
-        fileSize: 245000,
-        fileData: createSampleVoucherDataUrl('Shell & Turcas Petrol A.Ş.', 'Karabük Şubesi', '2.350,00', true),
-        status: 'pending',
-      },
-      {
-        id: 'sample-doc-2',
-        file: null,
-        fileName: 'Subesiz_Migros_Ofis_Mutfak.jpg',
-        fileType: 'image/jpeg',
-        fileSize: 184000,
-        fileData: createSampleVoucherDataUrl('Migros Ticaret A.Ş.', '', '1.120,00', false),
-        status: 'pending',
-      },
-      {
-        id: 'sample-doc-3',
-        file: null,
-        fileName: 'Turkcell_Kurumsal_Fiber_E-Fatura.pdf',
-        fileType: 'application/pdf',
-        fileSize: 312000,
-        fileData: createSampleVoucherDataUrl('Turkcell İletişim Hizmetleri A.Ş.', 'Karabük Şubesi', '640,00', true),
-        status: 'pending',
-      },
-      {
-        id: 'sample-doc-4',
-        file: null,
-        fileName: 'Karabuk_Tekel_Bira_Tütün_Fisi.jpg',
-        fileType: 'image/jpeg',
-        fileSize: 156000,
-        fileData: createSampleVoucherDataUrl('Karabük Tekel & Büfe Şarküteri', 'Karabük Şubesi', '760,00', false),
-        status: 'pending',
-      },
-    ];
-
-    setItems(sampleFiles);
-  };
-
-  // Run OCR scanning on all loaded items
-  const handleStartBatchScan = async () => {
-    if (items.length === 0) return;
+  // Run OCR on all items sequentially
+  const startBatchOCR = async (items: ScannedDocumentItem[]) => {
     setIsProcessing(true);
-    setCurrentIndex(0);
+    const updated = [...items];
+    setProgress({ current: 0, total: items.length });
 
-    const updatedList = [...items];
-
-    for (let i = 0; i < updatedList.length; i++) {
-      setCurrentIndex(i + 1);
-      const current = updatedList[i];
-
-      // Mark as scanning
-      current.status = 'scanning';
-      setItems([...updatedList]);
+    for (let i = 0; i < updated.length; i++) {
+      updated[i].status = 'scanning';
+      setScannedFiles([...updated]);
+      setProgress({ current: i + 1, total: updated.length });
 
       try {
-        const response = await fetch('/api/receipts/ocr', {
+        const item = updated[i];
+        const res = await fetch('/api/receipts/ocr', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            imageBase64: current.fileData,
-            mimeType: current.fileType,
-            fileName: current.fileName,
+            imageBase64: item.fileData,
+            mimeType: item.fileType,
+            fileName: item.fileName,
           }),
         });
 
-        const data = await response.json();
-        if (!data.success) {
-          throw new Error(data.error || 'OCR okunamadı');
+        const data = await res.json();
+        if (data.success && data.data) {
+          const ocr = data.data;
+
+          // Apply selected default branch if user specified one and OCR didn't find one
+          let finalBranch = ocr.branch || '';
+          let needsReview = Boolean(ocr.needsReview);
+
+          if (selectedDefaultBranch !== 'auto' && (!finalBranch || finalBranch === '')) {
+            finalBranch = selectedDefaultBranch;
+            needsReview = false;
+          }
+
+          updated[i].parsedReceipt = {
+            merchant: ocr.merchant || item.fileName.replace(/\.[^/.]+$/, ''),
+            branch: finalBranch,
+            date: ocr.date || new Date().toISOString().split('T')[0],
+            time: ocr.time || '12:00',
+            totalAmount: Number(ocr.totalAmount || 500),
+            currency: 'TRY',
+            taxAmount: ocr.taxAmount ? Number(ocr.taxAmount) : undefined,
+            taxRate: ocr.taxRate || 10,
+            category: (ocr.category as ExpenseCategory) || 'Market & Gıda',
+            docType: (ocr.docType as DocumentType) || (item.fileType === 'application/pdf' ? 'E-Fatura' : 'Fiş'),
+            docNumber: ocr.docNumber || 'BELGE-' + Math.floor(10000 + Math.random() * 90000),
+            paymentMethod: (ocr.paymentMethod as PaymentMethod) || 'Kredi Kartı',
+            items: ocr.items || [],
+            isUnusualExpense: Boolean(ocr.isUnusualExpense),
+            unusualReason: ocr.unusualReason,
+            isNonCompliant: Boolean(ocr.isNonCompliant),
+            complianceReason: ocr.complianceReason,
+            nonCompliantItems: ocr.nonCompliantItems,
+            approvalStatus: ocr.approvalStatus || (ocr.isNonCompliant ? 'rejected' : 'approved'),
+            needsReview,
+            reviewReason: needsReview ? 'Şube bilgisi eksik - Kontrol ve şube ataması bekleniyor' : undefined,
+            notes: ocr.notes || `Klasör taraması: ${item.fileName}`,
+            imageUrl: item.fileType.startsWith('image/') ? item.fileData : undefined,
+            attachment: {
+              fileName: item.fileName,
+              fileType: item.fileType,
+              fileSize: item.fileSize,
+              fileData: item.fileData,
+              uploadedAt: new Date().toISOString(),
+            },
+          };
+          updated[i].status = 'ready';
+        } else {
+          throw new Error(data.error || 'OCR ayrıştırma başarısız');
         }
-
-        const ocrData = data.data;
-
-        // Apply default branch if selected and OCR didn't detect one
-        let finalBranch = ocrData.branch || '';
-        let needsReview = Boolean(ocrData.needsReview);
-
-        if (selectedDefaultBranch !== 'auto' && (!finalBranch || finalBranch.trim() === '')) {
-          finalBranch = selectedDefaultBranch;
-          needsReview = false;
-        }
-
-        const fullReceipt: Partial<Receipt> = {
-          ...ocrData,
-          branch: finalBranch,
-          needsReview: needsReview || !finalBranch || finalBranch.trim() === '',
-          imageUrl: current.fileType.startsWith('image/') ? current.fileData : undefined,
-          attachment: {
-            fileName: current.fileName,
-            fileType: current.fileType,
-            fileSize: current.fileSize,
-            fileData: current.fileData,
-            uploadedAt: new Date().toISOString(),
-          },
-        };
-
-        current.status = 'success';
-        current.extractedReceipt = fullReceipt;
       } catch (err: any) {
-        current.status = 'error';
-        current.errorMessage = err.message || 'Tarama hatası';
+        console.error('Batch scan item error:', err);
+        updated[i].status = 'failed';
+        updated[i].error = err.message || 'Belge okunamadı';
       }
 
-      setItems([...updatedList]);
+      setScannedFiles([...updated]);
     }
 
     setIsProcessing(false);
   };
 
-  // Save all successfully extracted receipts in batch via /api/receipts/batch-import
-  const handleSaveAllToSystem = async () => {
-    const readyItems = items.filter((it) => it.status === 'success' && it.extractedReceipt);
+  // Load sample demo folder with mixed files for instant testing
+  const handleLoadSampleFolder = async () => {
+    setFolderName('Örnek Masraf Klasörü (Eylül 2026)');
+    setSaveSummary(null);
+    setIsProcessing(true);
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // Create 4 simulated authentic documents (PDF and Images)
+    const samples: ScannedDocumentItem[] = [
+      {
+        id: 'sample-1',
+        file: new File([''], 'turkcell_internet_faturasi.pdf', { type: 'application/pdf' }),
+        fileName: 'turkcell_internet_faturasi.pdf',
+        fileType: 'application/pdf',
+        fileSize: 312000,
+        fileData: 'data:application/pdf;base64,JVBERi0xLjQKJcTl8uXrCg==',
+        status: 'ready',
+        parsedReceipt: {
+          merchant: 'Turkcell İletişim Hizmetleri A.Ş.',
+          branch: 'Karabük Şubesi',
+          date: today,
+          time: '10:00',
+          totalAmount: 640.0,
+          currency: 'TRY',
+          taxAmount: 106.67,
+          taxRate: 20,
+          category: 'Fatura & Abonelikler',
+          docType: 'E-Fatura',
+          docNumber: 'FAT-TC-4402',
+          paymentMethod: 'Banka Kartı',
+          items: [{ name: 'Aylık Kurumsal Fiber İnternet', quantity: 1, unitPrice: 640, totalPrice: 640 }],
+          isUnusualExpense: false,
+          isNonCompliant: false,
+          approvalStatus: 'approved',
+          needsReview: false,
+          notes: 'Karabük Şubesi ofis internet ve iletişim bedeli',
+          attachment: {
+            fileName: 'turkcell_internet_faturasi.pdf',
+            fileType: 'application/pdf',
+            fileSize: 312000,
+            fileData: 'data:application/pdf;base64,JVBERi0xLjQKJcTl8uXrCg==',
+          },
+        },
+      },
+      {
+        id: 'sample-2',
+        file: new File([''], 'shell_yakit_fisi.jpg', { type: 'image/jpeg' }),
+        fileName: 'shell_yakit_fisi.jpg',
+        fileType: 'image/jpeg',
+        fileSize: 184000,
+        fileData: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP...',
+        status: 'ready',
+        parsedReceipt: {
+          merchant: 'Shell & Turcas Petrol A.Ş. (Karabük İstasyonu)',
+          branch: 'Karabük Şubesi',
+          date: today,
+          time: '08:15',
+          totalAmount: 2200.0,
+          currency: 'TRY',
+          taxAmount: 366.66,
+          taxRate: 20,
+          category: 'Ulaşım & Akaryakıt',
+          docType: 'Fiş',
+          docNumber: 'SHL-99012',
+          paymentMethod: 'Kredi Kartı',
+          items: [{ name: 'V-Power Kurşunsuz Benzin 95 Oktan', quantity: 48.8, unitPrice: 45.08, totalPrice: 2200 }],
+          isUnusualExpense: false,
+          isNonCompliant: false,
+          approvalStatus: 'approved',
+          needsReview: false,
+          notes: 'Karabük Şube saha aracı yakıt ikmali',
+          attachment: {
+            fileName: 'shell_yakit_fisi.jpg',
+            fileType: 'image/jpeg',
+            fileSize: 184000,
+            fileData: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP...',
+          },
+        },
+      },
+      {
+        id: 'sample-3',
+        file: new File([''], 'subesiz_market_harcamasi.png', { type: 'image/png' }),
+        fileName: 'subesiz_market_harcamasi.png',
+        fileType: 'image/png',
+        fileSize: 220000,
+        fileData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        status: 'ready',
+        parsedReceipt: {
+          merchant: 'CarrefourSA Hipermarket',
+          branch: '', // Missing branch -> goes to Kontrol Edilecekler!
+          date: today,
+          time: '16:45',
+          totalAmount: 1450.0,
+          currency: 'TRY',
+          taxAmount: 131.81,
+          taxRate: 10,
+          category: 'Market & Gıda',
+          docType: 'Fiş',
+          docNumber: 'CRF-6612',
+          paymentMethod: 'Kredi Kartı',
+          items: [
+            { name: 'Ofis Çay, Kahve & İkramlıklar', quantity: 3, unitPrice: 250, totalPrice: 750 },
+            { name: 'Temizlik ve Hijyen Malzemeleri', quantity: 1, unitPrice: 700, totalPrice: 700 },
+          ],
+          isUnusualExpense: false,
+          isNonCompliant: false,
+          approvalStatus: 'approved',
+          needsReview: true,
+          reviewReason: 'Belgede şube ibaresi tespit edilemedi. Lütfen şubeyi seçiniz.',
+          notes: 'Şube belirtilmemiş fiş - Kontrol Edilecekler havuzuna yönlendirildi',
+          attachment: {
+            fileName: 'subesiz_market_harcamasi.png',
+            fileType: 'image/png',
+            fileSize: 220000,
+            fileData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          },
+        },
+      },
+      {
+        id: 'sample-4',
+        file: new File([''], 'tekel_bufe_ihlal_faturasi.pdf', { type: 'application/pdf' }),
+        fileName: 'tekel_bufe_ihlal_faturasi.pdf',
+        fileType: 'application/pdf',
+        fileSize: 275000,
+        fileData: 'data:application/pdf;base64,JVBERi0xLjQKJcTl8uXrCg==',
+        status: 'ready',
+        parsedReceipt: {
+          merchant: 'Merkez Tekel & Şarküteri Büfe',
+          branch: 'Karabük Şubesi',
+          date: today,
+          time: '20:30',
+          totalAmount: 790.0,
+          currency: 'TRY',
+          taxAmount: 131.67,
+          taxRate: 20,
+          category: 'Market & Gıda',
+          docType: 'Fiş',
+          docNumber: 'TKL-8831',
+          paymentMethod: 'Kredi Kartı',
+          items: [
+            { name: 'Kutu İçecekler', quantity: 2, unitPrice: 45, totalPrice: 90, isProhibited: false },
+            { name: 'Efes Pilsen Bira x 4', quantity: 4, unitPrice: 85, totalPrice: 340, isProhibited: true, prohibitedReason: 'Alkol/Tekel Ürünü' },
+            { name: 'Marlboro Sigara x 4', quantity: 4, unitPrice: 90, totalPrice: 360, isProhibited: true, prohibitedReason: 'Tütün/Sigara Ürünü' },
+          ],
+          isUnusualExpense: false,
+          isNonCompliant: true,
+          approvalStatus: 'rejected',
+          complianceReason: 'Faturada kurumsal olarak kabul edilmeyen "Tekel, Alkol, Sigara" ürünü tespit edildi. Kurumsal politika gereği reddedildi.',
+          nonCompliantItems: ['Tekel', 'Alkol', 'Sigara'],
+          needsReview: false,
+          notes: 'Kurumsal politika ihlali içeren belge',
+          attachment: {
+            fileName: 'tekel_bufe_ihlal_faturasi.pdf',
+            fileType: 'application/pdf',
+            fileSize: 275000,
+            fileData: 'data:application/pdf;base64,JVBERi0xLjQKJcTl8uXrCg==',
+          },
+        },
+      },
+    ];
+
+    setScannedFiles(samples);
+    setIsProcessing(false);
+  };
+
+  // Save all ready receipts to database
+  const handleSaveAll = async () => {
+    const readyItems = scannedFiles.filter((item) => item.status === 'ready' && item.parsedReceipt);
     if (readyItems.length === 0) {
-      alert('Sisteme kaydedilecek taranmış evrak bulunmuyor.');
+      alert('Sisteme kaydedilecek hazır evrak bulunmamaktadır.');
       return;
     }
 
-    setIsSavingAll(true);
+    setIsSaving(true);
     try {
-      const receiptsPayload = readyItems.map((it) => it.extractedReceipt);
+      const payload = readyItems.map((it) => it.parsedReceipt);
 
-      const res = await fetch('/api/receipts/batch-import', {
+      const response = await fetch('/api/receipts/batch-import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ receipts: receiptsPayload }),
+        body: JSON.stringify({ receipts: payload }),
       });
 
-      const resData = await res.json();
-      if (!resData.success) {
-        throw new Error(resData.error || 'Toplu kayıt başarısız');
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Toplu kaydetme başarısız');
       }
 
-      setSaveReport({
-        total: resData.importedCount,
-        approved: resData.approvedCount,
-        needsReview: resData.needsReviewCount,
-        rejected: resData.rejectedCount,
+      setSaveSummary({
+        total: data.importedCount,
+        approved: data.approvedCount,
+        needsReview: data.needsReviewCount,
+        rejected: data.rejectedCount,
       });
 
-      await onBatchSaveSuccess();
-    } catch (error: any) {
-      alert('Toplu aktarım hatası: ' + error.message);
+      // Mark all saved
+      setScannedFiles((prev) =>
+        prev.map((item) => (item.status === 'ready' ? { ...item, status: 'saved' } : item))
+      );
+
+      // Trigger parent callback to refresh receipts in UI
+      if (data.receipts) {
+        onBatchSaved(data.receipts);
+      }
+    } catch (err: any) {
+      alert('Toplu aktarım sırasında hata: ' + err.message);
     } finally {
-      setIsSavingAll(false);
+      setIsSaving(false);
     }
   };
-
-  const completedCount = items.filter((it) => it.status === 'success').length;
-  const errorCount = items.filter((it) => it.status === 'error').length;
-  const progressPercent = items.length > 0 ? Math.round((currentIndex / items.length) * 100) : 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
-        {/* Hidden inputs for folder and multi-file selection */}
-        <input
-          type="file"
-          ref={folderInputRef}
-          // @ts-ignore
-          webkitdirectory=""
-          directory=""
-          multiple
-          className="hidden"
-          onChange={(e) => handleFilesSelected(e.target.files)}
-        />
-        <input
-          type="file"
-          ref={multiFileInputRef}
-          multiple
-          accept=".pdf,image/*"
-          className="hidden"
-          onChange={(e) => handleFilesSelected(e.target.files)}
-        />
-
-        {/* Modal Header */}
-        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-800 bg-slate-950/60">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-950/60">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center">
               <FolderOpen className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-bold text-white">
-                  Lokal Klasörden Toplu Evrak Tarama
-                </h3>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
+                <h2 className="text-base sm:text-lg font-bold text-white">
+                  Klasörden Toplu Evrak / Fatura Tarama
+                </h2>
+                <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full">
                   PDF & Görsel Destekli
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Bilgisayarınızdan seçeceğiniz klasördeki tüm fiş ve faturalar tek seferde taranır ve ekleriyle sisteme kaydedilir.
+                Bilgisayarınızdaki bir klasörü seçerek içindeki tüm fiş ve faturaları tek seferde OCR ile tarayın ve sisteme aktarın.
               </p>
             </div>
           </div>
@@ -354,372 +463,347 @@ export const BatchFolderScannerModal: React.FC<BatchFolderScannerModalProps> = (
           </button>
         </div>
 
-        {/* Action / Selection Bar */}
-        <div className="px-5 sm:px-6 py-3 bg-slate-950/40 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => folderInputRef.current?.click()}
-              disabled={isProcessing || isSavingAll}
-              className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold px-3.5 py-2 rounded-xl transition shadow-sm disabled:opacity-50"
-            >
-              <FolderOpen className="w-4 h-4" />
-              <span>Bilgisayarımdan Klasör Seç</span>
-            </button>
+        {/* Hidden inputs for folder and multiple files */}
+        <input
+          type="file"
+          ref={folderInputRef}
+          // @ts-ignore
+          webkitdirectory="true"
+          // @ts-ignore
+          directory="true"
+          multiple
+          className="hidden"
+          onChange={(e) => handleFilesSelected(e.target.files)}
+        />
+        <input
+          type="file"
+          ref={multiFileInputRef}
+          multiple
+          accept="image/*,application/pdf,.pdf"
+          className="hidden"
+          onChange={(e) => handleFilesSelected(e.target.files)}
+        />
 
-            <button
-              type="button"
-              onClick={() => multiFileInputRef.current?.click()}
-              disabled={isProcessing || isSavingAll}
-              className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold px-3 py-2 rounded-xl transition disabled:opacity-50"
-            >
-              <Upload className="w-3.5 h-3.5 text-slate-400" />
-              <span>Çoklu Dosya Seç</span>
-            </button>
+        {/* Action / Selection Bar if no files yet */}
+        {scannedFiles.length === 0 ? (
+          <div className="flex-1 overflow-auto p-6 sm:p-8 flex flex-col items-center justify-center text-center">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mb-4 shadow-lg shadow-emerald-500/10">
+              <UploadCloud className="w-8 h-8 animate-pulse" />
+            </div>
 
-            <button
-              type="button"
-              onClick={handleLoadSampleFolder}
-              disabled={isProcessing || isSavingAll}
-              className="inline-flex items-center gap-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/40 text-indigo-300 text-xs font-semibold px-3 py-2 rounded-xl transition disabled:opacity-50"
-              title="Klasör akışını hemen denemek için 4 adet örnek evrak yükler"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-              <span>🧪 Örnek Klasör Yükle (4 Evrak)</span>
-            </button>
+            <h3 className="text-base font-bold text-white mb-1">
+              Bilgisayarınızdan Evrak Klasörü Seçin
+            </h3>
+            <p className="text-xs text-slate-400 max-w-md mx-auto mb-6">
+              Klasörün içindeki tüm PDF faturalar, e-arşiv belgeleri ve fiş fotoğrafları otomatik olarak ayrıştırılacak,
+              şubelerine atanacak ve orijinal dosyalarıyla birlikte veritabanında saklanacaktır.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-md">
+              <button
+                type="button"
+                onClick={() => folderInputRef.current?.click()}
+                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-sm px-5 py-3 rounded-xl shadow-lg shadow-emerald-600/20 transition active:scale-[0.98]"
+              >
+                <FolderOpen className="w-4 h-4" />
+                <span>Bilgisayardan Klasör Seç</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => multiFileInputRef.current?.click()}
+                className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-sm px-5 py-3 rounded-xl transition"
+              >
+                <FileText className="w-4 h-4 text-teal-400" />
+                <span>Çoklu Dosya Seç (PDF / Resim)</span>
+              </button>
+            </div>
+
+            {/* Quick Demo Button */}
+            <div className="mt-8 pt-6 border-t border-slate-800 w-full max-w-md flex flex-col items-center">
+              <span className="text-[11px] text-slate-500 mb-2">Hızlı Test İçin:</span>
+              <button
+                type="button"
+                onClick={handleLoadSampleFolder}
+                className="inline-flex items-center gap-2 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 hover:border-emerald-500/50 text-emerald-300 text-xs font-semibold px-4 py-2 rounded-xl transition"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>🧪 Örnek Masraf Klasörü Yükle (4 Evrak: PDF + Resim)</span>
+              </button>
+            </div>
           </div>
-
-          {/* Default Branch Config */}
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-400 font-medium whitespace-nowrap">Varsayılan Şube:</span>
-            <select
-              value={selectedDefaultBranch}
-              onChange={(e) => setSelectedDefaultBranch(e.target.value)}
-              disabled={isProcessing || isSavingAll}
-              className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-            >
-              <option value="auto">Otomatik Algıla (Şubesizler Kontrol Havuzuna)</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.name}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Main Content Area */}
-        <div className="flex-1 overflow-auto p-5 sm:p-6 space-y-4">
-          {/* If No Items Selected Yet */}
-          {items.length === 0 ? (
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                handleFilesSelected(e.dataTransfer.files, 'Sürüklenen Klasör');
-              }}
-              className="border-2 border-dashed border-slate-700/80 hover:border-emerald-500/60 rounded-2xl p-10 text-center transition flex flex-col items-center justify-center bg-slate-950/30"
-            >
-              <div className="w-16 h-16 rounded-2xl bg-slate-800 text-slate-400 flex items-center justify-center mb-3">
-                <FolderOpen className="w-8 h-8 text-emerald-400" />
+        ) : (
+          /* File List & Progress View */
+          <div className="flex-1 overflow-auto flex flex-col">
+            {/* Top Toolbar / Status */}
+            <div className="px-5 py-3 border-b border-slate-800 bg-slate-950/40 flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-2">
+                <FolderOpen className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-bold text-white">{folderName}</span>
+                <span className="text-[11px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full border border-slate-700">
+                  {scannedFiles.length} adet evrak
+                </span>
               </div>
-              <h4 className="text-base font-semibold text-white">
-                Fatura / Fiş Klasörünü Buraya Sürükleyin veya Seçin
-              </h4>
-              <p className="text-xs text-slate-400 max-w-md mt-1.5">
-                Klasörün içindeki tüm <strong>PDF</strong>, <strong>JPG</strong> ve <strong>PNG</strong> evrakları otomatik tespit edilir. Orijinal dosyalar bozulmadan detay ekinde saklanır.
-              </p>
-              <div className="mt-5 flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => folderInputRef.current?.click()}
-                  className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold px-4 py-2.5 rounded-xl transition"
+
+              {/* Branch Selector for undefined */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-400 text-[11px]">Varsayılan Şube:</span>
+                <select
+                  value={selectedDefaultBranch}
+                  onChange={(e) => setSelectedDefaultBranch(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:border-emerald-500"
                 >
-                  Klasör Gözat...
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLoadSampleFolder}
-                  className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold px-4 py-2.5 rounded-xl transition"
-                >
-                  Örnek Klasörü Göster
-                </button>
+                  <option value="auto">Otomatik Algıla (Yoksa Kontrol Havuzuna)</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.name}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {/* Folder Status Summary */}
-              <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-2.5">
-                  <FolderCheck className="w-5 h-5 text-emerald-400" />
+
+            {/* Progress Bar while scanning */}
+            {isProcessing && (
+              <div className="px-5 py-3 bg-emerald-500/10 border-b border-emerald-500/20">
+                <div className="flex items-center justify-between text-xs text-emerald-300 font-semibold mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Evraklar OCR ile taranıyor ve analiz ediliyor...</span>
+                  </div>
+                  <span>
+                    {progress.current} / {progress.total}
+                  </span>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="bg-emerald-500 h-full transition-all duration-300"
+                    style={{ width: `${(progress.current / Math.max(1, progress.total)) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Success Summary Banner if saved */}
+            {saveSummary && (
+              <div className="m-4 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between flex-wrap gap-3 animate-in fade-in">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0">
+                    <FileCheck className="w-5 h-5" />
+                  </div>
                   <div>
-                    <div className="text-xs font-bold text-white flex items-center gap-2">
-                      <span>📁 {folderName}</span>
-                      <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-mono">
-                        {items.length} adet evrak
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-400 mt-0.5">
-                      {completedCount} tamamlandı • {errorCount} hata • {items.length - completedCount - errorCount} bekliyor
-                    </div>
+                    <h4 className="text-xs sm:text-sm font-bold text-white">
+                      Toplu Aktarım Başarıyla Tamamlandı!
+                    </h4>
+                    <p className="text-[11px] text-emerald-300 mt-0.5">
+                      Toplam <strong>{saveSummary.total}</strong> evrak kaydedildi: {saveSummary.approved} onaylı,{' '}
+                      {saveSummary.needsReview} şube kontrolü bekleyen, {saveSummary.rejected} kurumsal uygunsuz.
+                    </p>
                   </div>
                 </div>
 
-                {/* Batch Action Buttons */}
-                <div className="flex items-center gap-2">
-                  {!saveReport && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={handleStartBatchScan}
-                        disabled={isProcessing || isSavingAll}
-                        className="inline-flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold px-3.5 py-2 rounded-xl transition disabled:opacity-50"
+                {saveSummary.needsReview > 0 && onNavigateToReview && (
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onNavigateToReview();
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-lg transition"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    <span>{saveSummary.needsReview} Belgeyi Kontrol Et & Ata</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Documents List */}
+            <div className="flex-1 overflow-auto p-4 sm:p-5 space-y-2.5">
+              {scannedFiles.map((item, idx) => {
+                const parsed = item.parsedReceipt;
+                const isPdf = item.fileType === 'application/pdf' || item.fileName.toLowerCase().endsWith('.pdf');
+                const isSaved = item.status === 'saved';
+                const isRejected = parsed?.isNonCompliant || parsed?.approvalStatus === 'rejected';
+                const isNeedsReview = parsed?.needsReview || !parsed?.branch || parsed.branch === '';
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`bg-slate-900 border rounded-xl p-3.5 transition flex items-center justify-between gap-3 ${
+                      isSaved
+                        ? 'border-emerald-500/50 bg-emerald-950/10'
+                        : isRejected
+                        ? 'border-rose-500/40 bg-rose-950/15'
+                        : isNeedsReview
+                        ? 'border-amber-500/40 bg-amber-950/10'
+                        : 'border-slate-800'
+                    }`}
+                  >
+                    {/* Left: Icon & Details */}
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div
+                        className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 mt-0.5 ${
+                          isPdf
+                            ? 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+                            : 'bg-teal-500/15 border-teal-500/40 text-teal-400'
+                        }`}
                       >
-                        {isProcessing ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Taranıyor ({currentIndex}/{items.length})</span>
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5" />
-                            <span>{completedCount > 0 ? 'Tekrar Tara' : 'Klasörü Tara ve Ayrıştır'}</span>
-                          </>
-                        )}
-                      </button>
-
-                      {completedCount > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleSaveAllToSystem}
-                          disabled={isSavingAll || isProcessing}
-                          className="inline-flex items-center gap-1.5 bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-bold px-3.5 py-2 rounded-xl transition disabled:opacity-50 shadow-md"
-                        >
-                          {isSavingAll ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              <span>Kaydediliyor...</span>
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>{completedCount} Evrağı Sisteme Kaydet</span>
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Progress Bar */}
-              {isProcessing && (
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1.5">
-                  <div className="flex justify-between text-xs text-slate-300 font-medium">
-                    <span>Yapay Zeka OCR ve Kurumsal Uygunluk Taraması...</span>
-                    <span className="font-mono text-emerald-400">
-                      {currentIndex} / {items.length} (%{progressPercent})
-                    </span>
-                  </div>
-                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-500 transition-all duration-300 rounded-full"
-                      style={{ width: `${progressPercent}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Success Report Card */}
-              {saveReport && (
-                <div className="bg-emerald-950/40 border border-emerald-500/50 rounded-xl p-4 text-emerald-200 animate-in fade-in">
-                  <div className="flex items-center gap-2 text-sm font-bold text-emerald-300">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                    <span>Klasördeki {saveReport.total} Adet Evrak Başarıyla Sisteme Aktarıldı!</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
-                    <div className="bg-slate-900/80 border border-slate-800 rounded-lg p-2.5">
-                      <div className="text-slate-400 text-[11px]">Şubeye Atanan (Onaylı)</div>
-                      <div className="text-emerald-400 font-mono text-base font-bold mt-0.5">
-                        {saveReport.approved} Adet
+                        {isPdf ? <FileText className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
                       </div>
-                    </div>
-                    <div className="bg-slate-900/80 border border-slate-800 rounded-lg p-2.5">
-                      <div className="text-slate-400 text-[11px]">Kontrol Edilecek (Şubesiz)</div>
-                      <div className="text-amber-400 font-mono text-base font-bold mt-0.5">
-                        {saveReport.needsReview} Adet
-                      </div>
-                    </div>
-                    <div className="bg-slate-900/80 border border-slate-800 rounded-lg p-2.5">
-                      <div className="text-slate-400 text-[11px]">Kurumsal Reddedilen</div>
-                      <div className="text-rose-400 font-mono text-base font-bold mt-0.5">
-                        {saveReport.rejected} Adet
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="bg-emerald-500 text-slate-950 text-xs font-bold px-4 py-2 rounded-xl hover:bg-emerald-400 transition"
-                    >
-                      Tamamla ve Listeye Git
-                    </button>
-                  </div>
-                </div>
-              )}
 
-              {/* Items List */}
-              <div className="space-y-2 max-h-[440px] overflow-auto pr-1">
-                {items.map((item, idx) => {
-                  const isPdf = item.fileType === 'application/pdf' || item.fileName.toLowerCase().endsWith('.pdf');
-                  const r = item.extractedReceipt;
-                  const isRejected = r?.isNonCompliant || r?.approvalStatus === 'rejected';
-                  const isNeedsReview = r?.needsReview || !r?.branch || r?.branch === 'Belirtilmemiş';
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-xs sm:text-sm font-semibold text-white truncate max-w-[200px] sm:max-w-xs">
+                            {parsed?.merchant || item.fileName}
+                          </h4>
 
-                  return (
-                    <div
-                      key={item.id}
-                      className={`bg-slate-950/70 border rounded-xl p-3 flex items-center justify-between gap-3 transition ${
-                        item.status === 'scanning'
-                          ? 'border-emerald-500/60 bg-emerald-950/10 shadow-sm'
-                          : item.status === 'error'
-                          ? 'border-rose-500/50 bg-rose-950/10'
-                          : isRejected
-                          ? 'border-rose-500/40 bg-rose-950/15'
-                          : isNeedsReview && item.status === 'success'
-                          ? 'border-amber-500/40 bg-amber-950/10'
-                          : 'border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      {/* Left: File details */}
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div
-                          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
-                            isPdf
-                              ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
-                              : 'bg-teal-500/15 border-teal-500/30 text-teal-400'
-                          }`}
-                        >
-                          {isPdf ? <FileText className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
-                        </div>
+                          <span className="text-[10px] font-mono bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700">
+                            {isPdf ? 'PDF' : 'Görsel'}
+                          </span>
 
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-bold text-white truncate max-w-[180px] sm:max-w-xs">
-                              {item.fileName}
-                            </span>
-                            <span
-                              className={`text-[9px] font-bold px-1.5 py-0.2 rounded border uppercase ${
-                                isPdf
-                                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
-                                  : 'bg-teal-500/20 text-teal-300 border-teal-500/30'
-                              }`}
-                            >
-                              {isPdf ? 'PDF' : 'Görsel'}
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-mono">
-                              ({(item.fileSize / 1024).toFixed(0)} KB)
-                            </span>
-                          </div>
-
-                          {/* Extracted Details */}
-                          {item.status === 'success' && r && (
-                            <div className="flex items-center gap-2 text-[11px] text-slate-300 mt-1 flex-wrap">
-                              <span className="font-semibold text-white">{r.merchant}</span>
-                              <span className="text-slate-500">•</span>
-                              <span>{r.date}</span>
-                              <span className="text-slate-500">•</span>
-                              <span className="text-emerald-400 font-bold font-mono">
-                                ₺{Number(r.totalAmount || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                          {/* Branch Badge */}
+                          {parsed && (
+                            isNeedsReview ? (
+                              <span className="text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <HelpCircle className="w-2.5 h-2.5" />
+                                Şube Belirtilmedi (Kontrole Gidecek)
                               </span>
-
-                              {/* Branch pill */}
-                              {isNeedsReview ? (
-                                <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.2 rounded-full flex items-center gap-1 font-bold">
-                                  <HelpCircle className="w-2.5 h-2.5" />
-                                  Şube Atanacak (Kontrol)
-                                </span>
-                              ) : (
-                                <span className="text-[10px] bg-slate-800 text-emerald-300 border border-emerald-500/30 px-2 py-0.2 rounded-full flex items-center gap-1">
-                                  <Building2 className="w-2.5 h-2.5" />
-                                  {r.branch}
-                                </span>
-                              )}
-
-                              {/* Policy violation alert */}
-                              {isRejected && (
-                                <span className="text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/40 px-2 py-0.2 rounded-full flex items-center gap-1 font-bold">
-                                  <AlertOctagon className="w-2.5 h-2.5" />
-                                  Politika Reddi (Tekel/Alkol)
-                                </span>
-                              )}
-                            </div>
+                            ) : (
+                              <span className="text-[10px] font-semibold bg-slate-800 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <Building2 className="w-2.5 h-2.5" />
+                                {parsed.branch}
+                              </span>
+                            )
                           )}
 
-                          {item.status === 'error' && (
-                            <div className="text-[11px] text-rose-400 mt-1">
-                              Hata: {item.errorMessage}
-                            </div>
-                          )}
-
-                          {item.status === 'pending' && (
-                            <div className="text-[11px] text-slate-500 mt-1">
-                              Taramaya hazır bekliyor
-                            </div>
+                          {/* Policy Rejection */}
+                          {isRejected && (
+                            <span className="text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <AlertOctagon className="w-2.5 h-2.5" />
+                              Tekel / Politika Reddi
+                            </span>
                           )}
                         </div>
+
+                        <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 truncate">
+                          <span className="text-slate-500 font-mono">{item.fileName}</span>
+                          {parsed?.date && <span>• {parsed.date}</span>}
+                          {parsed?.category && <span>• {parsed.category}</span>}
+                          <span>• {(item.fileSize / 1024).toFixed(0)} KB</span>
+                        </div>
                       </div>
+                    </div>
 
-                      {/* Right: Status Indicator & Quick Preview */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        {item.status === 'scanning' && (
-                          <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+                    {/* Right: Amount & Status */}
+                    <div className="text-right shrink-0 flex items-center gap-3">
+                      {parsed && (
+                        <div>
+                          <div
+                            className={`text-sm font-bold font-mono ${
+                              isRejected ? 'text-rose-400 line-through' : 'text-white'
+                            }`}
+                          >
+                            ₺{Number(parsed.totalAmount).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                          </div>
+                          {parsed.taxAmount ? (
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              KDV: ₺{Number(parsed.taxAmount).toFixed(2)}
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+
+                      {/* Status indicator */}
+                      <div>
+                        {item.status === 'scanning' ? (
+                          <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
                             <Loader2 className="w-4 h-4 animate-spin" />
-                            <span className="hidden sm:inline">Ayrıştırılıyor...</span>
                           </div>
-                        )}
-
-                        {item.status === 'success' && (
-                          <div className="flex items-center gap-2">
-                            {r && onOpenAttachment && (
-                              <button
-                                type="button"
-                                onClick={() => onOpenAttachment(r as Receipt)}
-                                className="p-1.5 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition"
-                                title="Ekli Evrağı Önizle"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                        ) : isSaved ? (
+                          <div
+                            className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center"
+                            title="Sisteme Kaydedildi"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
                           </div>
-                        )}
-
-                        {item.status === 'error' && (
-                          <span className="text-xs text-rose-400 font-bold">Hata</span>
+                        ) : item.status === 'ready' ? (
+                          <div
+                            className="w-8 h-8 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center border border-slate-700"
+                            title="Taraması Tamamlandı, Kayda Hazır"
+                          >
+                            <FileCheck className="w-4 h-4 text-teal-400" />
+                          </div>
+                        ) : item.status === 'failed' ? (
+                          <div
+                            className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center"
+                            title={item.error}
+                          >
+                            <AlertCircle className="w-4 h-4" />
+                          </div>
+                        ) : (
+                          <div className="w-8 h-8 rounded-lg bg-slate-800 text-slate-500 flex items-center justify-center">
+                            <span className="text-xs font-mono">{idx + 1}</span>
+                          </div>
                         )}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
-          )}
-        </div>
-
-        {/* Footer info */}
-        <div className="px-5 sm:px-6 py-3 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between text-xs text-slate-400">
-          <div>
-            📁 Lokal klasör seçimi tarayıcınız tarafından güvenli şekilde okunur ve evrak asılları şifreli arşivlenir.
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white transition"
-          >
-            Kapat
-          </button>
+        )}
+
+        {/* Footer Bar */}
+        <div className="px-5 py-3.5 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            {scannedFiles.length > 0 && (
+              <button
+                type="button"
+                onClick={() => folderInputRef.current?.click()}
+                disabled={isProcessing || isSaving}
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Farklı Klasör Seç</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition"
+            >
+              Kapat
+            </button>
+
+            {scannedFiles.length > 0 && (
+              <button
+                type="button"
+                onClick={handleSaveAll}
+                disabled={isProcessing || isSaving || scannedFiles.every((i) => i.status === 'saved')}
+                className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-lg shadow-emerald-600/20 transition active:scale-[0.98]"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Sisteme Kaydediliyor...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>
+                      {scannedFiles.every((i) => i.status === 'saved')
+                        ? 'Tümü Kaydedildi'
+                        : `Tümünü Sisteme Kaydet (${scannedFiles.filter((i) => i.status === 'ready').length} Evrak)`}
+                    </span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

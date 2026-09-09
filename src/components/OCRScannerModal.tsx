@@ -16,8 +16,9 @@ import {
   AlertOctagon,
   ShieldAlert,
   HelpCircle,
+  FolderOpen,
 } from 'lucide-react';
-import { Receipt, ExpenseCategory, DocumentType, PaymentMethod, ReceiptItem, BranchInfo, DisallowedRule } from '../types';
+import { Receipt, ReceiptAttachment, ExpenseCategory, DocumentType, PaymentMethod, ReceiptItem, BranchInfo, DisallowedRule } from '../types';
 
 interface OCRScannerModalProps {
   isOpen: boolean;
@@ -25,6 +26,7 @@ interface OCRScannerModalProps {
   onSaveReceipt: (receipt: Partial<Receipt>) => Promise<void>;
   onQueueFor2100: (data: { name: string; imageBase64: string; docType: DocumentType; branch?: string }) => Promise<void>;
   initialBranch?: string;
+  onOpenFolderScanner?: () => void;
 }
 
 const CATEGORIES: ExpenseCategory[] = [
@@ -48,8 +50,14 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
   onSaveReceipt,
   onQueueFor2100,
   initialBranch = 'Karabük Şubesi',
+  onOpenFolderScanner,
 }) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [uploadedFileMeta, setUploadedFileMeta] = useState<{
+    fileName: string;
+    fileType: string;
+    fileSize: number;
+  } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanComplete, setScanComplete] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -142,22 +150,30 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Handle image selection
+  // Handle image and PDF file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      const meta = {
+        fileName: file.name,
+        fileType: isPdf ? 'application/pdf' : (file.type || 'image/jpeg'),
+        fileSize: file.size,
+      };
+      setUploadedFileMeta(meta);
+
       const reader = new FileReader();
       reader.onload = (event) => {
         const base64 = event.target?.result as string;
         setSelectedImage(base64);
-        processOCR(base64);
+        processOCR(base64, meta.fileType, meta.fileName);
       };
       reader.readAsDataURL(file);
     }
   };
 
-  // Run OCR with Gemini API
-  const processOCR = async (imageBase64: string) => {
+  // Run OCR with Gemini API (handles Image and PDF)
+  const processOCR = async (imageBase64: string, mimeType?: string, fileName?: string) => {
     setIsScanning(true);
     setErrorMsg(null);
     setScanComplete(false);
@@ -166,7 +182,11 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
       const response = await fetch('/api/receipts/ocr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64 }),
+        body: JSON.stringify({
+          imageBase64,
+          mimeType: mimeType || 'image/jpeg',
+          fileName: fileName || uploadedFileMeta?.fileName,
+        }),
       });
 
       const resData = await response.json();
@@ -184,7 +204,7 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
       setTaxAmount(ocr.taxAmount || 0);
       setTaxRate(ocr.taxRate || 10);
       setCategory(ocr.category || 'Market & Gıda');
-      setDocType(ocr.docType || 'Fiş');
+      setDocType(ocr.docType || (mimeType === 'application/pdf' ? 'E-Fatura' : 'Fiş'));
       setDocNumber(ocr.docNumber || '');
       setPaymentMethod(ocr.paymentMethod || 'Kredi Kartı');
       setIsUnusual(Boolean(ocr.isUnusualExpense));
@@ -384,7 +404,19 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
         unusualReason: unusualReason || (Number(totalAmount) >= 4500 ? 'Yüksek tutarlı harcama tespiti' : undefined),
         notes,
         items,
-        imageUrl: selectedImage && selectedImage !== 'sample' ? selectedImage : undefined,
+        imageUrl: selectedImage && selectedImage !== 'sample' && !uploadedFileMeta?.fileType.includes('pdf') ? selectedImage : undefined,
+        attachment: uploadedFileMeta && selectedImage && selectedImage !== 'sample' ? {
+          fileName: uploadedFileMeta.fileName,
+          fileType: uploadedFileMeta.fileType,
+          fileSize: uploadedFileMeta.fileSize,
+          fileData: selectedImage,
+          uploadedAt: new Date().toISOString(),
+        } : (selectedImage === 'sample' ? {
+          fileName: `${docType.toLowerCase()}_${docNumber || 'ornek'}.${docType === 'E-Fatura' ? 'pdf' : 'jpg'}`,
+          fileType: docType === 'E-Fatura' ? 'application/pdf' : 'image/jpeg',
+          fileSize: 195000,
+          uploadedAt: new Date().toISOString(),
+        } : undefined),
       });
       onClose();
     } catch (e: any) {
@@ -462,9 +494,9 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
           {/* Upload and Capture Options */}
           {!scanComplete && !isScanning && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {/* Camera Trigger */}
-                <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-700 hover:border-emerald-500/70 rounded-2xl bg-slate-800/40 hover:bg-slate-800/80 cursor-pointer transition group">
+                <label className="flex flex-col items-center justify-center p-5 border-2 border-dashed border-slate-700 hover:border-emerald-500/70 rounded-2xl bg-slate-800/40 hover:bg-slate-800/80 cursor-pointer transition group">
                   <input
                     ref={cameraInputRef}
                     type="file"
@@ -473,28 +505,46 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
                     className="hidden"
                     onChange={handleFileChange}
                   />
-                  <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-2 group-hover:scale-110 transition">
-                    <Camera className="w-6 h-6" />
+                  <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                    <Camera className="w-5 h-5" />
                   </div>
-                  <span className="font-semibold text-sm text-slate-200">Kamera ile Fişi Çek</span>
-                  <span className="text-xs text-slate-400 mt-0.5">Mobil cihazınızdan anlık fotoğraf</span>
+                  <span className="font-semibold text-xs text-slate-200">Kamera ile Çek</span>
+                  <span className="text-[10px] text-slate-400 mt-0.5">Anlık Fotoğraf</span>
                 </label>
 
-                {/* File Upload Trigger */}
-                <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-700 hover:border-emerald-500/70 rounded-2xl bg-slate-800/40 hover:bg-slate-800/80 cursor-pointer transition group">
+                {/* Single File Upload Trigger */}
+                <label className="flex flex-col items-center justify-center p-5 border-2 border-dashed border-slate-700 hover:border-emerald-500/70 rounded-2xl bg-slate-800/40 hover:bg-slate-800/80 cursor-pointer transition group">
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*,.pdf"
+                    accept="image/*,application/pdf,.pdf"
                     className="hidden"
                     onChange={handleFileChange}
                   />
-                  <div className="w-12 h-12 rounded-full bg-slate-700/50 text-slate-300 flex items-center justify-center mb-2 group-hover:scale-110 transition">
-                    <Upload className="w-6 h-6" />
+                  <div className="w-10 h-10 rounded-full bg-teal-500/10 text-teal-400 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                    <Upload className="w-5 h-5" />
                   </div>
-                  <span className="font-semibold text-sm text-slate-200">Görsel / Dosya Seç</span>
-                  <span className="text-xs text-slate-400 mt-0.5">JPEG, PNG, WebP veya E-Fatura</span>
+                  <span className="font-semibold text-xs text-slate-200">Tek Dosya Yükle</span>
+                  <span className="text-[10px] text-slate-400 mt-0.5">PDF veya Fiş Görseli</span>
                 </label>
+
+                {/* Local Folder Batch Scanner Trigger */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenFolderScanner) {
+                      onClose();
+                      onOpenFolderScanner();
+                    }
+                  }}
+                  className="flex flex-col items-center justify-center p-5 border-2 border-dashed border-emerald-500/40 hover:border-emerald-400 rounded-2xl bg-emerald-950/20 hover:bg-emerald-900/30 cursor-pointer transition group"
+                >
+                  <div className="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                    <FolderOpen className="w-5 h-5" />
+                  </div>
+                  <span className="font-semibold text-xs text-emerald-300">📁 Klasör Tara</span>
+                  <span className="text-[10px] text-emerald-400/80 mt-0.5">Toplu Evrak/Fatura</span>
+                </button>
               </div>
 
               {/* Sample Receipts Quick Selector */}
@@ -597,16 +647,26 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
           {/* OCR Extracted Form - Editable */}
           {scanComplete && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800 flex-wrap gap-2">
                 <div className="flex items-center gap-2 text-emerald-400 text-xs font-semibold">
                   <CheckCircle2 className="w-4 h-4" />
                   <span>OCR Başarıyla Tamamlandı • Verileri İnceleyin</span>
                 </div>
+
+                {uploadedFileMeta && (
+                  <span className="text-[11px] font-mono bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700 flex items-center gap-1.5">
+                    <FileText className="w-3 h-3 text-teal-400" />
+                    <span className="max-w-[160px] truncate">{uploadedFileMeta.fileName}</span>
+                    <span className="text-slate-500">({(uploadedFileMeta.fileSize / 1024).toFixed(0)} KB)</span>
+                  </span>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
                     setScanComplete(false);
                     setSelectedImage(null);
+                    setUploadedFileMeta(null);
                   }}
                   className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1"
                 >
