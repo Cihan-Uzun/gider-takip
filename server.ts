@@ -1116,50 +1116,44 @@ app.post('/api/receipts/ocr', async (req, res) => {
 
     const prompt = `
 Sen profesyonel bir kurumsal muhasebe, fiş, makbuz, e-fatura ve harcama OCR analiz uzmanısın.
-Sana verilen fiş / fatura / makbuz / PDF belgesini dikkatlice oku ve aşağıdaki JSON formatında kesin ve eksiksiz çıktı üret.
+Sana verilen fiş / fatura / makbuz / PDF belgesini en ince ayrıntısına kadar dikkatlice oku ve aşağıdaki JSON formatında KESİN VE EKSİKSİZ çıktı üret.
 Türkçe para birimi (TRY/TL) kullan.
 ${fileName ? `Belge Dosya Adı: "${fileName}"` : ''}
 
-ŞUBE TESPİTİ (ÖNEMLİ):
-Firmamızın tüm Türkiye'de şubeleri bulunmaktadır.
-Belge üzerindeki şube adını veya teslimat lokasyonunu dikkatlice tespit et (Örn: "Karabük Şubesi", "İstanbul Merkez", "Ankara Çankaya Şubesi", "İzmir Konak Şubesi", vb.).
-Mevcut kayıtlı şubeler şunlardır: ${branchNames}.
-Eğer belgede açıkça bir şube belirtilmişse (örneğin "Karabük Şubesi" veya "Karabük"), "branch" alanına yaz.
-Eğer şube ismi açıkça belirtilmemişse veya belgede şube ibaresi yoksa, "branch" alanını boş string ("") olarak bırak ve "needsReview" alanını true yap. Bu fiş "Kontrol Edilecekler" alanında bekletilecektir.
+ÖNEMLİ TALİMATLAR:
 
-KURUMSAL UYGUNLUK VE YASAKLI ÜRÜN KURALI (KRİTİK):
-Kurumsal şirket politikası gereği, faturada Tekel, Alkol (bira, şarap, rakı vb.), Sigara/Tütün, Puro, Piyango/Bahis gibi harcamalar KESİNLİKLE YASAKTIR.
-KURAL: TEK BİR ÜRÜN DAHİ BU YASAKLI KELİMELERDEN BİRİNE UYUYORSA, FATURANIN TAMAMI KABUL EDİLEMEZ VE REDDEDİLMELİDİR.
-Yasaklı kelimeler listesi: ${rules.map(r => r.keyword).join(', ')}.
+1. GERÇEK VE BİREBİR ÜRÜN/HİZMET KALEMLERİ (EN KRİTİK KURAL):
+- Belgede yer alan ürün, hizmet, akaryakıt, yemek veya harcama kalemlerini BİREBİR OKUDUĞUN ŞEKİLDE yaz.
+- ASLA kafandan hayali ürün uydurma, şablon ürünler (örneğin "Ofis Çay", "V-Power", "Tekel Ürünü") EKLEME.
+- Belgede ne yazıyorsa harfi harfine onu yaz.
+- Belgedeki adet (quantity), birim fiyat (unitPrice) ve satır toplamını (totalPrice) yaz.
+- Eğer belgede kalem kalem detay yoksa, sadece tek bir genel hizmet veya yekün varsa, tek bir kalem olarak belgedeki ana açıklamayı ve toplam tutarı yaz.
 
-Kategori olarak SADECE şunlardan birini seç:
-- "Market & Gıda"
-- "Restoran & Cafe"
-- "Ulaşım & Akaryakıt"
-- "Fatura & Abonelikler"
-- "Ofis & Kırtasiye"
-- "Sağlık & Eczane"
-- "Giyim & Yaşam"
-- "Elektronik & Donanım"
-- "Diğer"
+2. ŞUBE TESPİTİ:
+- Firmamızın şubeleri: ${branchNames}.
+- Eğer belgede açıkça bir şube veya teslimat lokasyonu varsa (Örn: "Karabük Şubesi", "İstanbul Merkez", "Ankara Çankaya Şubesi", "İzmir Konak Şubesi", vb.), "branch" alanına yaz.
+- Eğer şube ismi açıkça belirtilmemişse veya şüpheliyse, "branch" alanını boş string ("") olarak bırak ve "needsReview": true yap.
 
-Belge Türü (docType) olarak SADECE şunlardan birini seç:
-- "Fiş"
-- "Fatura"
-- "E-Fatura"
-- "Makbuz"
+3. KURUMSAL UYGUNLUK VE YASAKLI ÜRÜNLER (KRİTİK):
+- Kurumsal şirket politikası gereği; Tekel bayii harcamaları, Alkol (bira, şarap, rakı, viski vb.), Sigara/Tütün, Puro, Piyango/Şans Oyunları/Bahis harcamaları KESİNLİKLE YASAKTIR.
+- Yasaklı kelimeler listesi: ${rules.map(r => r.keyword).join(', ')}.
+- TEK BİR ÜRÜN DAHİ BU YASAKLI KELİMELERDEN BİRİNE UYUYORSA isNonCompliant=true olmalıdır.
 
-Ödeme Yöntemi (paymentMethod) olarak SADECE şunlardan birini seç:
-- "Kredi Kartı"
-- "Nakit"
-- "Banka Kartı"
-- "Havale / EFT"
+4. KATEGORİ (SADECE BİRİNİ SEÇ):
+"Market & Gıda", "Restoran & Cafe", "Ulaşım & Akaryakıt", "Fatura & Abonelikler", "Ofis & Kırtasiye", "Sağlık & Eczane", "Giyim & Yaşam", "Elektronik & Donanım", "Diğer"
 
-Olağandışı harcama kontrolü: Eğer tutar 4.000 TL'den yüksekse veya lüks/beklenmedik bir harcamaysa isUnusualExpense true yap ve nedenini unusualReason alanına yaz.
+5. BELGE TÜRÜ:
+"Fiş", "Fatura", "E-Fatura", "Makbuz"
+
+6. ÖDEME YÖNTEMİ:
+"Kredi Kartı", "Nakit", "Banka Kartı", "Havale / EFT"
+
+7. OLAĞANDIŞI HARCAMA KONTROLÜ:
+Eğer tutar 4.000 TL'den yüksekse veya lüks/beklenmedik bir harcamaysa isUnusualExpense=true yap ve nedenini unusualReason alanına yaz.
 
 DÖNDÜRÜLECEK JSON ŞEMASI:
 {
-  "merchant": "Mağaza veya Firma Adı",
+  "merchant": "Belgedeki Gerçek Firma/Satıcı Adı",
   "branch": "Karabük Şubesi",
   "date": "YYYY-MM-DD",
   "time": "HH:MM",
@@ -1173,7 +1167,7 @@ DÖNDÜRÜLECEK JSON ŞEMASI:
   "docNumber": "Fiş/Fatura No",
   "items": [
     {
-      "name": "Ürün Adı",
+      "name": "Belgedeki Gerçek Ürün veya Hizmet Adı",
       "quantity": 1,
       "unitPrice": 10.0,
       "totalPrice": 10.0
@@ -1183,165 +1177,101 @@ DÖNDÜRÜLECEK JSON ŞEMASI:
   "unusualReason": "",
   "notes": "Belgeyle ilgili kısa not"
 }
-Sadece JSON formatında geçerli yanıt ver. Markdown blokları koyma.
+SADECE geçerli JSON formatında yanıt ver. Markdown blokları koyma.
 `;
 
-    let resultJson: any = null;
-
-    if (process.env.GEMINI_API_KEY) {
-      try {
-        const ai = getGeminiClient();
-        let contents: any;
-
-        if (imageBase64) {
-          // Remove data URI prefix if present (supports image/* and application/pdf)
-          const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
-          const finalMime = mimeType || (imageBase64.startsWith('data:application/pdf') ? 'application/pdf' : 'image/jpeg');
-          contents = {
-            parts: [
-              {
-                inlineData: {
-                  mimeType: finalMime,
-                  data: cleanBase64,
-                },
-              },
-              { text: prompt },
-            ],
-          };
-        } else {
-          contents = {
-            parts: [
-              { text: prompt + '\n\nİncelenecek Metin:\n' + rawText },
-            ],
-          };
-        }
-
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents,
-          config: {
-            responseMimeType: 'application/json',
-          },
-        });
-
-        const rawJson = response.text || '{}';
-        resultJson = JSON.parse(rawJson);
-      } catch (geminiError) {
-        console.warn('Gemini API call failed, using intelligent fallback parser:', geminiError);
-      }
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: 'Sistemde GEMINI_API_KEY tanımlı değil. Yapay zeka OCR analizi için API anahtarı gereklidir.',
+      });
     }
 
-    // Fallback if Gemini not available or JSON parse failed
-    if (!resultJson || !resultJson.merchant) {
-      const today = new Date().toISOString().split('T')[0];
-      const fn = (fileName || '').toLowerCase();
-
-      if (fn.includes('tekel') || fn.includes('alkol') || fn.includes('bira') || fn.includes('sigara')) {
-        resultJson = {
-          merchant: 'Tekel & Büfe Şarküteri',
-          branch: fn.includes('karabuk') ? 'Karabük Şubesi' : '',
-          date: today,
-          time: '21:15',
-          totalAmount: 760.00,
-          currency: 'TRY',
-          taxAmount: 126.67,
-          taxRate: 20,
-          category: 'Market & Gıda',
-          paymentMethod: 'Kredi Kartı',
-          docType: fn.endsWith('.pdf') ? 'E-Fatura' : 'Fiş',
-          docNumber: 'TKL-' + Math.floor(10000 + Math.random() * 90000),
-          items: [
-            { name: 'Kutu İçecek & Soda', quantity: 2, unitPrice: 35, totalPrice: 70 },
-            { name: 'Efes Pilsen Özel Seri Bira', quantity: 4, unitPrice: 85, totalPrice: 340, isProhibited: true, prohibitedReason: 'Alkol/Tekel Ürünü' },
-            { name: 'Marlboro Touch Sigara', quantity: 4, unitPrice: 87.5, totalPrice: 350, isProhibited: true, prohibitedReason: 'Tütün/Sigara Ürünü' },
-          ],
-          isUnusualExpense: false,
-          notes: 'Belge otomatik klasör taramasından aktarıldı',
-        };
-      } else if (fn.includes('shell') || fn.includes('petrol') || fn.includes('yakit') || fn.includes('bp') || fn.includes('opet')) {
-        resultJson = {
-          merchant: 'Shell & Turcas Petrol A.Ş.',
-          branch: fn.includes('karabuk') ? 'Karabük Şubesi' : (fn.includes('istanbul') ? 'İstanbul Merkez' : ''),
-          date: today,
-          time: '08:40',
-          totalAmount: 2350.00,
-          currency: 'TRY',
-          taxAmount: 391.67,
-          taxRate: 20,
-          category: 'Ulaşım & Akaryakıt',
-          paymentMethod: 'Kredi Kartı',
-          docType: 'Fiş',
-          docNumber: 'SHL-' + Math.floor(10000 + Math.random() * 90000),
-          items: [
-            { name: 'V-Power Dizel Yakıt', quantity: 52, unitPrice: 45.19, totalPrice: 2350.00 },
-          ],
-          isUnusualExpense: false,
-          notes: 'Şirket saha aracı yakıt gideri',
-        };
-      } else if (fn.includes('migros') || fn.includes('market') || fn.includes('bim') || fn.includes('carrefour')) {
-        resultJson = {
-          merchant: 'Migros Ticaret A.Ş.',
-          branch: fn.includes('karabuk') ? 'Karabük Şubesi' : '',
-          date: today,
-          time: '14:30',
-          totalAmount: 1120.00,
-          currency: 'TRY',
-          taxAmount: 101.81,
-          taxRate: 10,
-          category: 'Market & Gıda',
-          paymentMethod: 'Kredi Kartı',
-          docType: 'Fiş',
-          docNumber: 'MGR-' + Math.floor(10000 + Math.random() * 90000),
-          items: [
-            { name: 'Ofis Çay & Mutfak İkramlıkları', quantity: 2, unitPrice: 210, totalPrice: 420 },
-            { name: 'Temizlik ve Sarf Malzemeleri', quantity: 1, unitPrice: 700, totalPrice: 700 },
-          ],
-          isUnusualExpense: false,
-          notes: 'Mutfak ve ofis tüketim fişi',
-        };
-      } else if (fn.includes('turkcell') || fn.includes('vodafone') || fn.includes('telekom') || fn.includes('fatura') || fn.endsWith('.pdf')) {
-        resultJson = {
-          merchant: fn.includes('turkcell') ? 'Turkcell İletişim Hizmetleri A.Ş.' : 'Kurumsal Bilişim ve İletişim A.Ş.',
-          branch: fn.includes('karabuk') ? 'Karabük Şubesi' : '',
-          date: today,
-          time: '10:00',
-          totalAmount: 640.00,
-          currency: 'TRY',
-          taxAmount: 106.67,
-          taxRate: 20,
-          category: 'Fatura & Abonelikler',
-          paymentMethod: 'Banka Kartı',
-          docType: fn.endsWith('.pdf') ? 'E-Fatura' : 'Fatura',
-          docNumber: 'FAT-' + Math.floor(100000 + Math.random() * 900000),
-          items: [
-            { name: 'Sabit Fiber İnternet ve Kurumsal Hat Hizmeti', quantity: 1, unitPrice: 640, totalPrice: 640 },
-          ],
-          isUnusualExpense: false,
-          notes: 'E-Fatura PDF belgesi',
-        };
-      } else {
-        const cleanName = fileName ? fileName.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ') : 'Taranan Fiş';
-        resultJson = {
-          merchant: cleanName.charAt(0).toUpperCase() + cleanName.slice(1),
-          branch: fn.includes('karabuk') ? 'Karabük Şubesi' : '',
-          date: today,
-          time: '12:30',
-          totalAmount: 580.00,
-          currency: 'TRY',
-          taxAmount: 52.73,
-          taxRate: 10,
-          category: 'Market & Gıda',
-          paymentMethod: 'Kredi Kartı',
-          docType: fn.endsWith('.pdf') ? 'E-Fatura' : 'Fiş',
-          docNumber: 'EVR-' + Math.floor(100000 + Math.random() * 900000),
-          items: [
-            { name: 'Genel Tüketim ve Ofis İhtiyacı', quantity: 1, unitPrice: 580.0, totalPrice: 580.0 },
-          ],
-          isUnusualExpense: false,
-          unusualReason: '',
-          notes: fileName ? `"${fileName}" dosyasından aktarıldı` : 'OCR ile başarıyla tarandı ve ayrıştırıldı.',
-        };
+    let contents: any;
+    if (imageBase64) {
+      const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
+      let finalMime = mimeType;
+      if (!finalMime || finalMime === 'application/octet-stream') {
+        if (imageBase64.startsWith('data:application/pdf') || (fileName && fileName.toLowerCase().endsWith('.pdf'))) {
+          finalMime = 'application/pdf';
+        } else {
+          finalMime = 'image/jpeg';
+        }
       }
+      contents = [
+        {
+          inlineData: {
+            mimeType: finalMime,
+            data: cleanBase64,
+          },
+        },
+        { text: prompt },
+      ];
+    } else {
+      contents = [
+        { text: prompt + '\n\nİncelenecek Belge Metni:\n' + rawText },
+      ];
+    }
+
+    const ai = getGeminiClient();
+    // Multi-model resilience: Try fast and robust flash-lite first, then flash-latest, then 3.8-flash
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
+    let resultJson: any = null;
+    let lastError: any = null;
+
+    for (const modelName of candidateModels) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents,
+            config: {
+              responseMimeType: 'application/json',
+            },
+          });
+
+          const rawTextResponse = response.text || '';
+          if (rawTextResponse.trim()) {
+            const cleaned = rawTextResponse.replace(/```(?:json)?\n?/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+            if (parsed && typeof parsed === 'object' && (parsed.merchant || parsed.totalAmount !== undefined)) {
+              resultJson = parsed;
+              console.log(`[OCR] Successfully parsed document using model: ${modelName}`);
+              break;
+            }
+          }
+        } catch (err: any) {
+          lastError = err;
+          const msg = err?.message || String(err);
+          console.warn(`[OCR] Model ${modelName} (attempt ${attempt + 1}) error: ${msg}`);
+          if (msg.includes('503') || msg.includes('429') || msg.includes('high demand') || msg.includes('UNAVAILABLE')) {
+            await new Promise((r) => setTimeout(r, 600));
+          } else {
+            break;
+          }
+        }
+      }
+      if (resultJson) break;
+    }
+
+    if (!resultJson) {
+      const errDetail = lastError?.message || 'Yapay zeka servis yanıtı alınamadı.';
+      console.error('[OCR] All candidate models failed:', errDetail);
+      return res.status(500).json({
+        success: false,
+        error: `Belge OCR analizi yapılamadı: ${errDetail}. Lütfen görselin net ve aydınlık olduğundan emin olup tekrar deneyiniz.`,
+      });
+    }
+
+    // Ensure items array is valid and not fabricated
+    if (!Array.isArray(resultJson.items)) {
+      resultJson.items = [];
+    }
+
+    // Ensure numeric fields
+    resultJson.totalAmount = typeof resultJson.totalAmount === 'number' ? resultJson.totalAmount : parseFloat(String(resultJson.totalAmount || '0')) || 0;
+    if (resultJson.taxAmount) {
+      resultJson.taxAmount = typeof resultJson.taxAmount === 'number' ? resultJson.taxAmount : parseFloat(String(resultJson.taxAmount)) || undefined;
     }
 
     // If branch was not detected or is empty, flag for review
@@ -1350,6 +1280,7 @@ Sadece JSON formatında geçerli yanıt ver. Markdown blokları koyma.
       resultJson.needsReview = true;
       resultJson.reviewReason = 'Belgede şube ibaresi tespit edilemedi. Lütfen şubeyi seçiniz.';
     }
+
     resultJson = evaluateCompliance(resultJson, rules);
 
     res.json({ success: true, data: resultJson });

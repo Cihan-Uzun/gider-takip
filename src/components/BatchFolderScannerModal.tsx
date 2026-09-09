@@ -158,6 +158,11 @@ export const BatchFolderScannerModal: React.FC<BatchFolderScannerModalProps> = (
           }),
         });
 
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          throw new Error('Sunucu API yanıtı alınamadı. Lütfen canlı AI Studio / Cloud Run adresini kullanınız.');
+        }
+
         const data = await res.json();
         if (data.success && data.data) {
           const ocr = data.data;

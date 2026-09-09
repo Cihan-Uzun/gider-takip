@@ -61,13 +61,26 @@ export default function App() {
   const fetchData = async () => {
     try {
       setRefreshing(true);
+      const safeFetchJson = async (url: string) => {
+        try {
+          const res = await fetch(url);
+          const ct = res.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            return await res.json();
+          }
+          return { success: false, notJson: true };
+        } catch {
+          return { success: false };
+        }
+      };
+
       const [recRes, queueRes, monthRes, dailyRes, sysRes, branchRes] = await Promise.all([
-        fetch('/api/receipts').then((r) => r.json()),
-        fetch('/api/receipts/queue').then((r) => r.json()),
-        fetch(`/api/reports/monthly?month=${currentMonth}`).then((r) => r.json()),
-        fetch('/api/reports/daily-summary').then((r) => r.json()),
-        fetch('/api/system/status').then((r) => r.json()),
-        fetch('/api/branches').then((r) => r.json()).catch(() => ({ success: false })),
+        safeFetchJson('/api/receipts'),
+        safeFetchJson('/api/receipts/queue'),
+        safeFetchJson(`/api/reports/monthly?month=${currentMonth}`),
+        safeFetchJson('/api/reports/daily-summary'),
+        safeFetchJson('/api/system/status'),
+        safeFetchJson('/api/branches'),
       ]);
 
       if (recRes.success) setReceipts(recRes.data || []);

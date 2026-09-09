@@ -189,6 +189,13 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({
         }),
       });
 
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(
+          'Sunucu API yanıtı alınamadı (Backend servisi bulunamadı). Eğer bu sayfayı Vercel gibi statik bir hosting üzerinde açtıysanız, backend sunucusu ve Gemini API anahtarı aktif değildir. Lütfen uygulamanın canlı Cloud Run / AI Studio bağlantısını kullanınız.'
+        );
+      }
+
       const resData = await response.json();
       if (!resData.success) {
         throw new Error(resData.error || 'OCR işlemi başarısız');
